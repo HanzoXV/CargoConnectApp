@@ -68,53 +68,61 @@ fun rememberMapViewWithLifecycle(): MapView {
 @Composable
 fun OSMContainer(
     points: List<GeoPoint>,
-    onDistancesCalculated: (List<Double>) -> Unit = {}, // New Callback for leg distances
-    onMapClick: (GeoPoint) -> Unit,
-    onMapLongClick: (GeoPoint) -> Unit
+    routeFromUser: Boolean = false,
+    onDistancesCalculated: (List<Double>) -> Unit = {},
+    onMapClick: (GeoPoint) -> Unit = {},
+    onMapLongClick: (GeoPoint) -> Unit = {}
 ) {
     val context = LocalContext.current
     org.osmdroid.config.Configuration.getInstance().userAgentValue = context.packageName
     val mapView = rememberMapViewWithLifecycle()
     var capturedUserLocation by remember { mutableStateOf<GeoPoint?>(null) }
+    var hasInitiallyCentered by remember { mutableStateOf(false) }
 
-    LaunchedEffect(points.size, capturedUserLocation) {
+    // Effect 1: Redraw Route & Markers
+    LaunchedEffect(points, capturedUserLocation == null) {
         val userLoc = capturedUserLocation
-        if (points.isNotEmpty() && userLoc != null) {
-            calculateDistancesFromUser(context, userLoc, points, onDistancesCalculated)
-        }
+        
         mapView.overlays.removeAll { overlay ->
             overlay is org.osmdroid.views.overlay.Polyline ||
-                    overlay is org.osmdroid.views.overlay.Marker
+                    (overlay is org.osmdroid.views.overlay.Marker && overlay.id != "user_location_overlay")
         }
 
         if (points.isNotEmpty()) {
             points.forEachIndexed { index, geoPoint ->
                 val marker = org.osmdroid.views.overlay.Marker(mapView).apply {
                     position = geoPoint
-
                     icon = androidx.core.content.ContextCompat.getDrawable(context, R.drawable.ic_red_pin)
                     setAnchor(org.osmdroid.views.overlay.Marker.ANCHOR_CENTER, org.osmdroid.views.overlay.Marker.ANCHOR_BOTTOM)
-                    title = when (index) {
-                        0 -> "Start"
-                        points.size - 1 -> "End"
-                        else -> "Stop $index"
-                    }
+                    title = if (index == 0) "Start" else if (index == points.size -1) "End" else "Stop $index"
                 }
                 mapView.overlays.add(marker)
             }
 
-            if (points.size >= 2) {
-                drawFullRoute(context, mapView, points, onDistancesCalculated)
-                val boundingBox = BoundingBox.fromGeoPoints(points)
-                mapView.post {
-                    mapView.zoomToBoundingBox(boundingBox, true, 150)
-                }
-            } else {
-                mapView.controller.animateTo(points[0])
-                mapView.controller.setZoom(15.0)
+            val waypoints = if (routeFromUser && userLoc != null) arrayListOf(userLoc) + points else points
+            if (waypoints.size >= 2) {
+                drawFullRoute(context, mapView, waypoints as List<GeoPoint>)
             }
         }
         mapView.invalidate()
+    }
+
+    // Effect 2: Distances update
+    LaunchedEffect(capturedUserLocation, points) {
+        capturedUserLocation?.let { loc ->
+            if (points.isNotEmpty()) {
+                calculateDistancesFromUser(context, loc, points, onDistancesCalculated)
+            }
+        }
+    }
+
+    // Effect 3: Camera Center - Centering on User Location
+    LaunchedEffect(capturedUserLocation) {
+        if (capturedUserLocation != null && !hasInitiallyCentered) {
+            mapView.controller.setZoom(17.0)
+            mapView.controller.animateTo(capturedUserLocation)
+            hasInitiallyCentered = true
+        }
     }
 
     AndroidView(
@@ -128,6 +136,10 @@ fun OSMContainer(
                     enableMyLocation()
                     runOnFirstFix {
                         capturedUserLocation = myLocation
+                        // Ensure we update state on main thread for UI changes
+                        (context as? android.app.Activity)?.runOnUiThread {
+                            capturedUserLocation = myLocation
+                        }
                     }
                 }
                 overlays.add(locationOverlay)
@@ -140,8 +152,7 @@ fun OSMContainer(
 fun drawFullRoute(
     context: Context,
     mapView: MapView,
-    points: List<GeoPoint>,
-    onDistancesCalculated: (List<Double>) -> Unit
+    points: List<GeoPoint>
 ) {
     val roadManager: RoadManager = OSRMRoadManager(context, context.packageName)
 
@@ -154,16 +165,11 @@ fun drawFullRoute(
             roadOverlay.outlinePaint.color = "#6236B5".toColorInt()
             roadOverlay.outlinePaint.strokeWidth = 12f
             mapView.overlays.add(roadOverlay)
-
-            val legDistances = road.mLegs.map { leg ->
-                leg.mLength / 1000.0
-            }
-            onDistancesCalculated(legDistances)
-
             mapView.invalidate()
         }
     }
 }
+
 fun calculateDistancesFromUser(
     context: Context,
     userLocation: GeoPoint,
@@ -176,9 +182,6 @@ fun calculateDistancesFromUser(
         val distances = points.map { stop ->
             val waypoints = arrayListOf(userLocation, stop)
             val road = roadManager.getRoad(waypoints)
-
-            // Safety check: OSMDroid returns meters or km depending on server/version.
-            // If it's over 5000 for a city trip, it's likely meters.
             if (road.mLength > 5000) road.mLength / 1000.0 else road.mLength
         }
 
@@ -187,6 +190,7 @@ fun calculateDistancesFromUser(
         }
     }
 }
+
 fun getAddressFromGeoPoint(context: Context, geoPoint: GeoPoint): String {
     val geocoder = Geocoder(context, Locale.getDefault())
     return try {

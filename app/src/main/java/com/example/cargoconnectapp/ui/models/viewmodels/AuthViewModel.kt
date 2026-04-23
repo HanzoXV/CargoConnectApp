@@ -134,55 +134,43 @@ class AuthViewModel (private val sessionViewModel: UserSessionViewModel) : ViewM
                 if (loginResponse.isSuccessful) {
                     val loginBody = loginResponse.body()
                     if (loginBody == null) {
-                        Log.e(
-                            "AUTH_DEBUG",
-                            "Login response body is null — raw: ${loginResponse.raw()}"
-                        )
+                        Log.e("AUTH_DEBUG", "Login response body is null — raw: ${loginResponse.raw()}")
                         errorMessage = "Server response error"
                         return@launch
                     }
 
-                Log.d("AUTH_DEBUG", "Login OK — userId=${loginBody.userId} roleName=${loginBody.roleName}")
+                    Log.d("AUTH_DEBUG", "Login OK — userId=${loginBody.userId} roleName=${loginBody.roleName}")
 
-                val profileResponse = RetrofitClient.instance.getUserData(UserDataRequest(userId = loginBody.userId ?: -1))
-                Log.d("AUTH_DEBUG", "Profile code=${profileResponse.code()} body=${profileResponse.body()} error=${profileResponse.errorBody()?.string()}")
-
-                if (profileResponse.isSuccessful && profileResponse.body() != null) {
-                    val loginBody = loginResponse.body()!!
                     val id = loginBody.userId ?: -1
+                    val roleBasedId = loginBody.roleBasedId ?: -1
                     val roleName = loginBody.roleName ?: ""
                     val roleEnum = mapRoleNameToEnum(roleName)
-                    Log.d("AUTH_DEBUG", "roleName from server: '${loginBody.roleName}'")
-                    Log.d("AUTH_DEBUG", "roleName from server: '${roleEnum}'")
-
-                    val request = UserDataRequest(userId = id)
 
                     // Call 2: Profile Fetch
-                    val profileResponse = RetrofitClient.instance.getUserData(request)
+                    val profileResponse = RetrofitClient.instance.getUserData(UserDataRequest(userId = id))
+                    
                     if (profileResponse.isSuccessful && profileResponse.body() != null) {
                         sessionViewModel.updateSession(
                             id = id,
+                            roleBasedId = roleBasedId,
                             email = userEmail,
                             role = roleEnum,
                             userData = profileResponse.body()!!
                         )
                         onSuccess(roleName)
                     } else {
-                        errorMessage =
-                            "Account verified, but profile sync failed. Please try again."
+                        errorMessage = "Account verified, but profile sync failed. Please try again."
                         sessionViewModel.clearSession()
                     }
-                }
                 } else {
                     Log.d("AUTH_DEBUG", "Login FAILED — code=${loginResponse.code()} error=${loginResponse.errorBody()?.string()}")
                     errorMessage = "Invalid email or password"
                 }
-            }
-            catch (e: Exception) {
+            } catch (e: Exception) {
                 errorMessage = "Connection Error: Please check your internet."
                 Log.e("CONNECTION_ERROR", "MESSAGE: ${e.message}")
                 e.printStackTrace()
-            }finally {
+            } finally {
                 isLoading = false
             }
         }

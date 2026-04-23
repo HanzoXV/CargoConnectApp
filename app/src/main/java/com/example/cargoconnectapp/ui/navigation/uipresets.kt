@@ -8,8 +8,11 @@ import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -17,25 +20,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Assignment
-import androidx.compose.material.icons.filled.ChatBubble
-import androidx.compose.material.icons.filled.ChevronLeft
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Inventory
-import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -49,22 +43,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.example.cargoconnectapp.ui.models.destinations.CustomerBookings
-import com.example.cargoconnectapp.ui.models.destinations.CustomerChat
-import com.example.cargoconnectapp.ui.models.destinations.CustomerDashboard
-import com.example.cargoconnectapp.ui.models.destinations.CustomerDestination
-import com.example.cargoconnectapp.ui.models.destinations.CustomerNewShipment
-import com.example.cargoconnectapp.ui.models.destinations.CustomerProfile
-import com.example.cargoconnectapp.ui.models.destinations.DriverChat
-import com.example.cargoconnectapp.ui.models.destinations.DriverDashboard
-import com.example.cargoconnectapp.ui.models.destinations.DriverDeliveries
-import com.example.cargoconnectapp.ui.models.destinations.DriverDestination
-import com.example.cargoconnectapp.ui.models.destinations.DriverProfile
-import com.example.cargoconnectapp.ui.models.destinations.DriverShipmentRequest
-import com.example.cargoconnectapp.ui.navigation.screens.ChatMessage
-import com.example.cargoconnectapp.ui.themes.actionTealColor
-import com.example.cargoconnectapp.ui.themes.inputColor
-import com.example.cargoconnectapp.ui.themes.textThemeColor
+import com.example.cargoconnectapp.ui.models.destinations.*
+import com.example.cargoconnectapp.ui.themes.*
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -145,6 +125,138 @@ fun InfoRow(label: String, value: String) {
     ) {
         Text(text = label, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textThemeColor)
         Text(text = value, fontSize = 14.sp, color = Color.Gray)
+    }
+}
+
+
+// ─────────────────────────────────────────────
+// SHARED OVERHAUL COMPONENTS
+// ─────────────────────────────────────────────
+
+@Composable
+fun GlassCard(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .shadow(8.dp, RoundedCornerShape(24.dp)),
+        shape = RoundedCornerShape(24.dp),
+        color = Color.White.copy(alpha = 0.95f),
+    ) {
+        Column(modifier = Modifier.padding(20.dp), content = content)
+    }
+}
+
+@Composable
+fun InteractiveTabRow(
+    tabs: List<String>,
+    selectedTab: String,
+    onTabSelected: (String) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White.copy(alpha = 0.5f))
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        tabs.forEach { tab ->
+            val isSelected = selectedTab == tab
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(44.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (isSelected) actionTealColor else Color.Transparent)
+                    .clickable { onTabSelected(tab) },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = tab,
+                    color = if (isSelected) Color.White else textThemeColor.copy(alpha = 0.6f),
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    fontSize = 14.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun AnimatedProgressBar(
+    progress: Float,
+    color: Color = actionTealColor,
+    label: String = ""
+) {
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress,
+        animationSpec = spring(stiffness = Spring.StiffnessLow),
+        label = "progress"
+    )
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = textThemeColor)
+            Text("${(progress * 100).toInt()}%", fontSize = 12.sp, color = color, fontWeight = FontWeight.Bold)
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(10.dp)
+                .clip(CircleShape)
+                .background(color.copy(alpha = 0.15f))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(animatedProgress)
+                    .fillMaxHeight()
+                    .clip(CircleShape)
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(color.copy(alpha = 0.7f), color)
+                        )
+                    )
+            )
+        }
+    }
+}
+
+@Composable
+fun DetailItem(icon: ImageVector, label: String, value: String) {
+    Row(modifier = Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, modifier = Modifier.size(16.dp), tint = Color.Gray)
+        Spacer(modifier = Modifier.width(12.dp))
+        Column {
+            Text(label, fontSize = 10.sp, color = Color.Gray)
+            Text(value, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        }
+    }
+}
+
+@Composable
+fun ProfileMenuCard(title: String, icon: ImageVector, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = Color.White,
+        shadowElevation = 2.dp
+    ) {
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(modifier = Modifier.size(40.dp), shape = RoundedCornerShape(10.dp), color = backgroundColor.copy(alpha = 0.4f)) {
+                Icon(icon, null, modifier = Modifier.padding(8.dp), tint = textThemeColor)
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Text(title, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Icon(Icons.Default.ChevronRight, null, tint = Color.LightGray)
+        }
     }
 }
 
@@ -512,31 +624,31 @@ fun DashboardBottomBar(
             icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
             selected = currentTab is DriverDashboard,
             onClick = onHomeClick,
-            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor)
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor, indicatorColor = actionTealColor.copy(alpha = 0.1f))
         )
         NavigationBarItem(
             icon = { Icon(Icons.Default.Inventory, contentDescription = "Orders") },
             selected = currentTab is DriverShipmentRequest,
             onClick = onOrdersClick,
-            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor)
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor, indicatorColor = actionTealColor.copy(alpha = 0.1f))
         )
         NavigationBarItem(
             icon = { Icon(Icons.Default.Assignment, contentDescription = "History") },
             selected = currentTab is DriverDeliveries,
             onClick = onHistoryClick,
-            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor)
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor, indicatorColor = actionTealColor.copy(alpha = 0.1f))
         )
         NavigationBarItem(
             icon = { Icon(Icons.Default.ChatBubble, contentDescription = "Chat") },
             selected = currentTab is DriverChat,
             onClick = onChatClick,
-            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor)
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor, indicatorColor = actionTealColor.copy(alpha = 0.1f))
         )
         NavigationBarItem(
             icon = { Icon(Icons.Default.AccountCircle, contentDescription = "Profile") },
-            selected = currentTab is DriverProfile,
+            selected = currentTab is DriverProfileScreen,
             onClick = onProfileClick,
-            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor)
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor, indicatorColor = actionTealColor.copy(alpha = 0.1f))
         )
     }
 }
@@ -557,31 +669,31 @@ fun CustomerBottomBar(
             icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
             selected = currentTab is CustomerDashboard,
             onClick = onHomeClick,
-            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor)
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor, indicatorColor = actionTealColor.copy(alpha = 0.1f))
         )
         NavigationBarItem(
-            icon = { Icon(Icons.Default.Add, contentDescription = "New Shipment") },
+            icon = { Icon(Icons.Default.LocalShipping, contentDescription = "New Shipment") },
             selected = currentTab is CustomerNewShipment,
             onClick = onOrdersClick,
-            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor)
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor, indicatorColor = actionTealColor.copy(alpha = 0.1f))
         )
         NavigationBarItem(
             icon = { Icon(Icons.Default.Assignment, contentDescription = "Bookings") },
             selected = currentTab is CustomerBookings,
             onClick = onHistoryClick,
-            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor)
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor, indicatorColor = actionTealColor.copy(alpha = 0.1f))
         )
         NavigationBarItem(
             icon = { Icon(Icons.Default.ChatBubble, contentDescription = "Chat") },
             selected = currentTab is CustomerChat,
             onClick = onChatClick,
-            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor)
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor, indicatorColor = actionTealColor.copy(alpha = 0.1f))
         )
         NavigationBarItem(
             icon = { Icon(Icons.Default.AccountCircle, contentDescription = "Profile") },
             selected = currentTab is CustomerProfile,
             onClick = onProfileClick,
-            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor)
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor, indicatorColor = actionTealColor.copy(alpha = 0.1f))
         )
     }
 }
@@ -810,10 +922,12 @@ fun CounterRow(
 fun CalendarView(
     currentMonth: YearMonth,
     selectedDate: LocalDate?,
+    minDate: LocalDate? = null,
     onDateSelected: (LocalDate) -> Unit,
     onMonthChanged: (YearMonth) -> Unit
 ) {
     val today = LocalDate.now()
+    val baseMinDate = minDate ?: today
 
     Surface(
         modifier = Modifier
@@ -880,7 +994,7 @@ fun CalendarView(
                             if (dayNumber in 1..daysInMonth) {
                                 val date = currentMonth.atDay(dayNumber)
                                 val isSelected = date == selectedDate
-                                val isPast = date.isBefore(today)
+                                val isPast = date.isBefore(baseMinDate)
 
                                 Box(
                                     modifier = Modifier
@@ -934,13 +1048,15 @@ fun ProfileMenuItem(text: String, onClick: () -> Unit) {
         )
     }
 }
+
+
 @Composable
-fun ChatBubble(message: ChatMessage) {
+fun ChatMessageItem(content: String, isSentByMe: Boolean) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (message.isSentByMe) Arrangement.End else Arrangement.Start
+        horizontalArrangement = if (isSentByMe) Arrangement.End else Arrangement.Start
     ) {
-        if (!message.isSentByMe) {
+        if (!isSentByMe) {
             Box(
                 modifier = Modifier
                     .size(28.dp)
@@ -958,21 +1074,72 @@ fun ChatBubble(message: ChatMessage) {
             shape = RoundedCornerShape(
                 topStart = 16.dp,
                 topEnd = 16.dp,
-                bottomStart = if (message.isSentByMe) 16.dp else 4.dp,
-                bottomEnd = if (message.isSentByMe) 4.dp else 16.dp
+                bottomStart = if (isSentByMe) 16.dp else 4.dp,
+                bottomEnd = if (isSentByMe) 4.dp else 16.dp
             ),
-            color = if (message.isSentByMe) Color(0xFF333333) else Color.White,
+            color = if (isSentByMe) actionTealColor else Color.White,
             shadowElevation = 1.dp
         ) {
             Text(
-                text = message.content,
+                text = content,
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                 fontSize = 14.sp,
-                color = if (message.isSentByMe) Color.White else textThemeColor
+                color = if (isSentByMe) Color.White else textThemeColor
             )
         }
     }
 }
+
+@Composable
+fun EnhancedChatListItem(name: String, lastMessage: String, time: String, hasUnread: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        color = Color.Transparent
+    ) {
+        Row(
+            modifier = Modifier.padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box {
+                Surface(modifier = Modifier.size(56.dp), shape = CircleShape, color = Color.White) {
+                    Icon(Icons.Default.Person, null, modifier = Modifier.padding(12.dp), tint = Color.LightGray)
+                }
+                if (hasUnread) {
+                    Box(modifier = Modifier.size(12.dp).clip(CircleShape).background(statusRedColor).border(2.dp, Color.White, CircleShape).align(Alignment.TopEnd))
+                }
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(time, fontSize = 12.sp, color = Color.Gray)
+                }
+                Text(lastMessage, fontSize = 14.sp, color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+@Composable
+fun EnhancedNotificationCard(message: String, time: String, isUnread: Boolean) {
+    GlassCard(modifier = Modifier.padding(vertical = 4.dp)) {
+        Row(verticalAlignment = Alignment.Top) {
+            Surface(modifier = Modifier.size(40.dp), shape = CircleShape, color = actionTealColor.copy(alpha = 0.1f)) {
+                Icon(Icons.Default.NotificationsActive, null, modifier = Modifier.padding(8.dp), tint = actionTealColor)
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(message, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text(time, fontSize = 11.sp, color = Color.Gray, modifier = Modifier.padding(top = 4.dp))
+            }
+            if (isUnread) {
+                Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(actionTealColor))
+            }
+        }
+    }
+}
+
 @Preview
 @Composable
 fun show () {

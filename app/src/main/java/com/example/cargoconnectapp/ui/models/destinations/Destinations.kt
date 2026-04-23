@@ -41,7 +41,7 @@ data class DriverChat(
     val page: ChatPage = ChatPage.Main
 ) : DriverDestination
 @Serializable
-data class DriverProfile(
+data class DriverProfileScreen(
     val page: DriverProfilePage = DriverProfilePage.Main
 ) : DriverDestination
 

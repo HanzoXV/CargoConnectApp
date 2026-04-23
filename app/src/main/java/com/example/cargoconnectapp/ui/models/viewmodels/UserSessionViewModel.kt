@@ -16,6 +16,8 @@ import com.example.cargoconnectapp.ui.models.helpermodels.UserRoles
 class UserSessionViewModel : ViewModel() {
     var userId by mutableIntStateOf(-1)
         private set
+    var roleBasedId by mutableIntStateOf(-1)
+        private set
     var userEmail by mutableStateOf("Not Specified")
         private set
     var userRole by mutableStateOf(UserRoles.NotSpecified)
@@ -50,23 +52,26 @@ class UserSessionViewModel : ViewModel() {
 
     fun updateSession(
         id: Int,
+        roleBasedId: Int,
         email: String,
         role: UserRoles,
         userData: UserDataResponse
     ) {
-        userId = id
-        userEmail = email
-        userRole = role
-        userFullName = userData.fullName
-        userContact = userData.contactNo
-        userLicenseNo = userData.licenseNo ?: ""
-        userStreetAddress = userData.streetNo ?: ""
-        userCity = userData.city ?: ""
-        userProfileImageUrl = userData.profileImageUrl
+        this.userId = id
+        this.roleBasedId = roleBasedId
+        this.userEmail = email
+        this.userRole = role
+        this.userFullName = userData.fullName
+        this.userContact = userData.contactNo
+        this.userLicenseNo = userData.licenseNo ?: ""
+        this.userStreetAddress = userData.streetNo ?: ""
+        this.userCity = userData.city ?: ""
+        this.userProfileImageUrl = userData.profileImageUrl
     }
 
     fun clearSession() {
         userId = -1
+        roleBasedId = -1
         userEmail = "Not Specified"
         userRole = UserRoles.NotSpecified
         // ... clear other fields as needed

@@ -2,46 +2,54 @@ package com.example.cargoconnectapp.ui.navigation.screens
 
 import android.os.Build
 import androidx.annotation.RequiresApi
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.SentimentSatisfied
-import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.example.cargoconnectapp.ui.models.destinations.DriverDashboard
 import com.example.cargoconnectapp.ui.models.destinations.DriverDestination
 import com.example.cargoconnectapp.ui.models.viewmodels.DriverViewModel
 import com.example.cargoconnectapp.ui.navigation.*
 import com.example.cargoconnectapp.ui.themes.*
+import com.example.cargoconnectapp.ui.models.map.OSMContainer
+import com.example.cargoconnectapp.ui.models.map.getAddressFromGeoPoint
+import org.osmdroid.util.GeoPoint
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import java.time.LocalDate
 import java.time.YearMonth
 
+// ─────────────────────────────────────────────
+// MODELS & DATA
+// ─────────────────────────────────────────────
 
 data class ShipmentRequest(
     val title: String,
@@ -93,10 +101,118 @@ data class ShipmentDetail(
     val packages: List<ShipmentPackage>
 )
 
+data class ChatMessage(
+    val content: String,
+    val isSentByMe: Boolean,
+    val timestamp: String? = null
+)
 
 // ─────────────────────────────────────────────
-// DRIVER DASHBOARD SCREEN
+// REUSABLE COMPONENTS (Enhanced)
 // ─────────────────────────────────────────────
+
+@Composable
+fun GlassCard(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .shadow(8.dp, RoundedCornerShape(24.dp)),
+        shape = RoundedCornerShape(24.dp),
+        color = Color.White.copy(alpha = 0.95f),
+    ) {
+        Column(modifier = Modifier.padding(20.dp), content = content)
+    }
+}
+
+@Composable
+fun AnimatedProgressBar(
+    progress: Float,
+    color: Color = actionTealColor,
+    label: String = ""
+) {
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress,
+        animationSpec = spring(stiffness = Spring.StiffnessLow),
+        label = "progress"
+    )
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = textThemeColor)
+            Text("${(progress * 100).toInt()}%", fontSize = 12.sp, color = color, fontWeight = FontWeight.Bold)
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(10.dp)
+                .clip(CircleShape)
+                .background(color.copy(alpha = 0.15f))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(animatedProgress)
+                    .fillMaxHeight()
+                    .clip(CircleShape)
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(color.copy(alpha = 0.7f), color)
+                        )
+                    )
+            )
+        }
+    }
+}
+
+@Composable
+fun InteractiveTabRow(
+    tabs: List<String>,
+    selectedTab: String,
+    onTabSelected: (String) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White.copy(alpha = 0.5f))
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        tabs.forEach { tab ->
+            val isSelected = selectedTab == tab
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(44.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (isSelected) actionTealColor else Color.Transparent)
+                    .clickable { onTabSelected(tab) },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = tab,
+                    color = if (isSelected) Color.White else textThemeColor.copy(alpha = 0.6f),
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    fontSize = 14.sp
+                )
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────
+// DRIVER DASHBOARD SCREEN (Overhauled)
+// ─────────────────────────────────────────────
+
+@androidx.annotation.RequiresPermission(
+    allOf = [android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION]
+)
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun DriverDashboardScreen(
@@ -110,15 +226,15 @@ fun DriverDashboardScreen(
     onReachedClick: (Int) -> Unit = {},
     currentTab: DriverDestination = DriverDashboard()
 ) {
-    val backgroundGradient = remember {
-        Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
-    }
+    val backgroundGradient = Brush.verticalGradient(
+        listOf(backgroundColor, Color.White)
+    )
 
     val activeRoute = driverViewModel.activeRoute
     val checkpoints = activeRoute?.checkpoints?.sortedBy { it.sequenceNo } ?: emptyList()
-    val reachedCount = checkpoints.count { it.reached?: false }
-
-    var selectedTab by remember { mutableStateOf("Trip") }
+    val reachedCount = checkpoints.count { it.reached ?: false }
+    var selectedTab by remember { mutableStateOf("Trip Info") }
+    val calculatedDistances = remember { mutableStateListOf<Double>() }
 
     Scaffold(
         bottomBar = {
@@ -131,371 +247,265 @@ fun DriverDashboardScreen(
                 onProfileClick = onProfileClick
             )
         },
-        containerColor = Color.Transparent
+        containerColor = backgroundColor
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(backgroundGradient)
                 .padding(innerPadding)
-                .padding(horizontal = 28.dp)
-                .padding(top = 48.dp)
+                .padding(horizontal = 24.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            AppHeading("Dashboard")
-            AddSpace(16)
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TabButton(text = "Trip Info", isSelected = selectedTab == "Trip", onClick = { selectedTab = "Trip" })
-                TabButton(text = "Truck Info", isSelected = selectedTab == "Truck", onClick = { selectedTab = "Truck" })
+            Spacer(modifier = Modifier.height(32.dp))
+            
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Driver Dashboard", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = textThemeColor)
+                    Text("Welcome back, Captain!", fontSize = 14.sp, color = textThemeColor.copy(alpha = 0.6f))
+                }
+                Surface(
+                    modifier = Modifier.size(48.dp),
+                    shape = CircleShape,
+                    color = actionTealColor.copy(alpha = 0.1f)
+                ) {
+                    IconButton(onClick = { /* Notifications */ }) {
+                        Icon(Icons.Default.Notifications, contentDescription = null, tint = actionTealColor)
+                    }
+                }
             }
 
-            AddSpace(20)
+            Spacer(modifier = Modifier.height(24.dp))
 
-            if (selectedTab == "Trip") {
-                // ── TRIP INFO TAB ──
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color.White,
-                    shadowElevation = 2.dp
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Route Info", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = textThemeColor)
+            InteractiveTabRow(
+                tabs = listOf("Trip Info", "Truck Info"),
+                selectedTab = selectedTab,
+                onTabSelected = { selectedTab = it }
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            AnimatedContent(
+                targetState = selectedTab,
+                transitionSpec = {
+                    fadeIn(animationSpec = tween(300)) togetherWith fadeOut(animationSpec = tween(300))
+                }, label = ""
+            ) { targetTab ->
+                if (targetTab == "Trip Info") {
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        // Progress Card
+                        GlassCard {
+                            Text("Current Progress", fontWeight = FontWeight.Bold, color = textThemeColor)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            val progress = if (checkpoints.isNotEmpty()) reachedCount.toFloat() / checkpoints.size else 0f
+                            AnimatedProgressBar(progress = progress, label = "Journey Status")
+                            Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                "${checkpoints.size} stops  •  $reachedCount done",
-                                fontSize = 11.sp,
-                                color = Color.Gray
+                                "$reachedCount of ${checkpoints.size} stops reached",
+                                fontSize = 12.sp,
+                                color = textThemeColor.copy(alpha = 0.5f)
                             )
                         }
-                        AddSpace(8)
-                        if (checkpoints.isEmpty()) {
-                            Text(
-                                "No active route.",
-                                fontSize = 13.sp,
-                                color = Color.Gray,
-                                modifier = Modifier.padding(vertical = 12.dp)
-                            )
-                        } else {
-                            LazyColumn(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(max = 200.dp),
-                                userScrollEnabled = true
+
+                        // Map / Stops Card
+                        GlassCard {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                itemsIndexed(checkpoints) { index, checkpoint ->
-                                    RouteItem(
-                                        city = checkpoint.name?: "N/A",
-                                        address = "Seq ${checkpoint.sequenceNo}",
-                                        distance = "",
-                                        isReached = checkpoint.reached?: false,
-                                        onDelayClick = { onDelayClick(index) },
-                                        onReachedClick = { onReachedClick(index) }
-                                    )
-                                    if (index < checkpoints.lastIndex) {
-                                        HorizontalDivider(color = Color.LightGray.copy(alpha = 0.4f))
-                                    }
+                                Text("Itinerary", fontWeight = FontWeight.Bold, color = textThemeColor)
+                                Icon(Icons.Default.Map, contentDescription = null, tint = actionTealColor, modifier = Modifier.size(20.dp))
+                            }
+                            Spacer(modifier = Modifier.height(16.dp))
+                            
+                            Box(modifier = Modifier.height(200.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)))   {
+                                val geoPoints = checkpoints.mapNotNull { cp ->
+                                    if (cp.latitude != null && cp.longitude != null) GeoPoint(cp.latitude, cp.longitude) else null
                                 }
+                                if (geoPoints.isEmpty()) {
+                                    Box(modifier = Modifier.fillMaxSize().background(Color.Gray.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
+                                        Text("No active route found", color = Color.Gray)
+                                    }
+                                } else {
+                                    OSMContainer(
+                                        points = geoPoints,
+                                        onDistancesCalculated = { calculatedDistances.clear(); calculatedDistances.addAll(it) },
+                                        onMapClick = {}, onMapLongClick = {}
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            checkpoints.forEachIndexed { index, checkpoint ->
+                                val dist = calculatedDistances.getOrNull(index)?.let { 
+                                    if (it < 1.0) "${(it * 1000).toInt()}m" else "%.1f km".format(it)
+                                } ?: "--"
+                                
+                                EnhancedRouteItem(
+                                    city = checkpoint.name ?: "Unknown Stop",
+                                    distance = dist,
+                                    isReached = checkpoint.reached ?: false,
+                                    isLast = index == checkpoints.lastIndex,
+                                    onDelay = { onDelayClick(index) },
+                                    onReached = { onReachedClick(index) }
+                                )
                             }
                         }
                     }
-                }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        // Visual Truck Card
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(160.dp)
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(Brush.horizontalGradient(listOf(actionTealColor, actionTealColor.copy(alpha = 0.6f)))),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("🚛", fontSize = 80.sp)
+                        }
 
-                AddSpace(16)
+                        // Capacity Card
+                        GlassCard {
+                            Text("Cargo Load", fontWeight = FontWeight.Bold, color = textThemeColor)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            val loadPercent = if (driverViewModel.totalCapacity > 0)
+                                driverViewModel.currentCapacity.toFloat() / driverViewModel.totalCapacity else 0f
+                            AnimatedProgressBar(progress = loadPercent, color = statusBlueColor, label = "Weight Utilization")
+                            
+                            Spacer(modifier = Modifier.height(24.dp))
+                            
+                            EnhancedCounter(
+                                label = "Current Load",
+                                value = "${driverViewModel.currentCapacity} KG",
+                                onValueChange = { delta ->
+                                    driverViewModel.setCapacity(
+                                        (driverViewModel.currentCapacity + delta).coerceIn(0, driverViewModel.totalCapacity),
+                                        driverViewModel.totalCapacity
+                                    )
+                                }
+                            )
+                        }
 
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(280.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color(0xFFCFE8E5),
-                    shadowElevation = 2.dp
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text("Map View", color = Color.Gray, fontSize = 14.sp)
-                    }
-                }
-
-            } else {
-                // ── TRUCK INFO TAB ──
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(180.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Surface(
-                        modifier = Modifier.size(200.dp, 140.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color(0xFFFFF9C4)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text("🚛", fontSize = 64.sp)
+                        // Dimensions Card
+                        GlassCard {
+                            Text("Space Dimensions", fontWeight = FontWeight.Bold, color = textThemeColor)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            DimensionItem("Length", driverViewModel.currentDimensions.length) { driverViewModel.setCurrentDimensions(it, driverViewModel.currentDimensions.width, driverViewModel.currentDimensions.height) }
+                            DimensionItem("Width", driverViewModel.currentDimensions.width) { driverViewModel.setCurrentDimensions(driverViewModel.currentDimensions.length, it, driverViewModel.currentDimensions.height) }
+                            DimensionItem("Height", driverViewModel.currentDimensions.height) { driverViewModel.setCurrentDimensions(driverViewModel.currentDimensions.length, driverViewModel.currentDimensions.width, it) }
                         }
                     }
                 }
-
-                AddSpace(8)
-
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color.White,
-                    shadowElevation = 2.dp
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Current Capacity", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = textThemeColor)
-                        AddSpace(12)
-
-                        val capacityPercent = if (driverViewModel.totalCapacity > 0)
-                            driverViewModel.currentCapacity.toFloat() / driverViewModel.totalCapacity
-                        else 0f
-
-                        LinearProgressIndicator(
-                            progress = { capacityPercent },
-                            modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
-                            color = actionTealColor,
-                            trackColor = Color.LightGray.copy(alpha = 0.3f)
-                        )
-                        Text(
-                            text = "${(capacityPercent * 100).toInt()}%",
-                            fontSize = 12.sp,
-                            color = Color.Gray,
-                            modifier = Modifier.align(Alignment.End).padding(top = 4.dp)
-                        )
-
-                        AddSpace(16)
-
-                        CounterRow(
-                            label = "Current Capacity",
-                            value = "${driverViewModel.currentCapacity} KGs",
-                            onDecrease = { driverViewModel.setCapacity(
-                                (driverViewModel.currentCapacity - 100).coerceAtLeast(0),
-                                driverViewModel.totalCapacity
-                            )},
-                            onIncrease = { driverViewModel.setCapacity(
-                                (driverViewModel.currentCapacity + 100).coerceAtMost(driverViewModel.totalCapacity),
-                                driverViewModel.totalCapacity
-                            )}
-                        )
-                        AddSpace(8)
-                        InfoRow(label = "Total Capacity", value = "${driverViewModel.totalCapacity} KGs")
-                    }
-                }
-
-                AddSpace(16)
-
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color.White,
-                    shadowElevation = 2.dp
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Adjust Dimensions", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = textThemeColor)
-                        AddSpace(12)
-                        CounterRow(
-                            label = "Length",
-                            value = "${driverViewModel.currentDimensions.length}cm",
-                            onDecrease = { driverViewModel.setCurrentDimensions(
-                                (driverViewModel.currentDimensions.length - 5).coerceAtLeast(0),
-                                driverViewModel.currentDimensions.width,
-                                driverViewModel.currentDimensions.height
-                            )},
-                            onIncrease = { driverViewModel.setCurrentDimensions(
-                                driverViewModel.currentDimensions.length + 5,
-                                driverViewModel.currentDimensions.width,
-                                driverViewModel.currentDimensions.height
-                            )}
-                        )
-                        AddSpace(8)
-                        CounterRow(
-                            label = "Width",
-                            value = "${driverViewModel.currentDimensions.width}cm",
-                            onDecrease = { driverViewModel.setCurrentDimensions(
-                                driverViewModel.currentDimensions.length,
-                                (driverViewModel.currentDimensions.width - 5).coerceAtLeast(0),
-                                driverViewModel.currentDimensions.height
-                            )},
-                            onIncrease = { driverViewModel.setCurrentDimensions(
-                                driverViewModel.currentDimensions.length,
-                                driverViewModel.currentDimensions.width + 5,
-                                driverViewModel.currentDimensions.height
-                            )}
-                        )
-                        AddSpace(8)
-                        CounterRow(
-                            label = "Height",
-                            value = "${driverViewModel.currentDimensions.height}cm",
-                            onDecrease = { driverViewModel.setCurrentDimensions(
-                                driverViewModel.currentDimensions.length,
-                                driverViewModel.currentDimensions.width,
-                                (driverViewModel.currentDimensions.height - 5).coerceAtLeast(0)
-                            )},
-                            onIncrease = { driverViewModel.setCurrentDimensions(
-                                driverViewModel.currentDimensions.length,
-                                driverViewModel.currentDimensions.width,
-                                driverViewModel.currentDimensions.height + 5
-                            )}
-                        )
-                    }
-                }
             }
-
-            AddSpace(24)
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }
 
-
-// ─────────────────────────────────────────────
-// DASHBOARD - SHIPMENTS SUB-VIEW
-// ─────────────────────────────────────────────
-
 @Composable
-fun DashboardShipmentsScreen(
-    shipments: List<ShipmentDetail> = listOf(
-        ShipmentDetail(
-            title = "Electronics Household",
-            totalWeight = "~580 KGs",
-            recipientName = "Kamran Ali",
-            totalFare = "25570.0 PKR",
-            packages = listOf(
-                ShipmentPackage("Refrigerator", 1, "Red", "PESHAWA#122025"),
-                ShipmentPackage("Sofa", 3, "Red", "PESHAWA#122026")
-            )
-        ),
-        ShipmentDetail(
-            title = "Sofa Set",
-            totalWeight = "~270 KGs",
-            recipientName = "Kamran Ali",
-            totalFare = "14570.0 PKR",
-            packages = listOf(
-                ShipmentPackage("Refrigerator", 1, "Red", "PESHAWA#122025")
-            )
-        )
-    ),
-    onBack: () -> Unit = {},
-    onConfirmDelivery: () -> Unit = {},
-    onHomeClick: () -> Unit = {},
-    onOrdersClick: () -> Unit = {},
-    onHistoryClick: () -> Unit = {},
-    onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {},
-    currentTab: DriverDestination = DriverDashboard()
+fun EnhancedRouteItem(
+    city: String,
+    distance: String,
+    isReached: Boolean,
+    isLast: Boolean,
+    onDelay: () -> Unit,
+    onReached: () -> Unit
 ) {
-    val backgroundGradient = remember {
-        Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
-    }
-
-    Scaffold(
-        bottomBar = {
-            DashboardBottomBar(
-                currentTab = currentTab,
-                onHomeClick = onHomeClick,
-                onOrdersClick = onOrdersClick,
-                onHistoryClick = onHistoryClick,
-                onChatClick = onChatClick,
-                onProfileClick = onProfileClick,
-
-            )
-        },
-        containerColor = Color.Transparent
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(backgroundGradient)
-                .padding(innerPadding)
-                .padding(horizontal = 28.dp)
-                .padding(top = 48.dp)
-                .verticalScroll(rememberScrollState())
-        ) {
-            AppHeading("Dashboard")
-            AddSpace(16)
-
-            // Back row
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+    Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onBack() }
-                    .padding(bottom = 12.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = textThemeColor,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Shipments", fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = textThemeColor)
-            }
-
-            shipments.forEach { shipment ->
-                ShipmentDetailCard(shipment = shipment)
-                AddSpace(12)
-            }
-
-            AddSpace(16)
-
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                AppButton(
-                    text = "Confirm Delivery",
-                    onClick = onConfirmDelivery,
-                    width = 220.dp
+                    .size(16.dp)
+                    .clip(CircleShape)
+                    .background(if (isReached) actionTealColor else Color.Gray.copy(alpha = 0.3f))
+                    .border(3.dp, Color.White, CircleShape)
+            )
+            if (!isLast) {
+                Box(
+                    modifier = Modifier
+                        .width(2.dp)
+                        .fillMaxHeight()
+                        .background(if (isReached) actionTealColor.copy(alpha = 0.3f) else Color.Gray.copy(alpha = 0.1f))
                 )
             }
-
-            AddSpace(24)
+        }
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f).padding(bottom = 24.dp)) {
+            Text(city, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (isReached) actionTealColor else textThemeColor)
+            Text(distance, fontSize = 12.sp, color = Color.Gray)
+            
+            if (!isReached) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = onDelay,
+                        modifier = Modifier.height(32.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = statusRedColor.copy(alpha = 0.1f), contentColor = statusRedColor),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp)
+                    ) {
+                        Text("Delay", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Button(
+                        onClick = onReached,
+                        modifier = Modifier.height(32.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = actionTealColor),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp)
+                    ) {
+                        Text("Arrived", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-fun ShipmentDetailCard(shipment: ShipmentDetail) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        color = Color.White,
-        shadowElevation = 2.dp
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(shipment.title, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = textThemeColor)
-            Text("Total Weight: ${shipment.totalWeight}", fontSize = 12.sp, color = Color.Gray)
-            Text("Recipient's Name: ${shipment.recipientName}", fontSize = 12.sp, color = Color.Gray)
-            AddSpace(10)
-            shipment.packages.forEachIndexed { i, pkg ->
-                Text("Package ${i + 1}: ${pkg.name}", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = textThemeColor)
-                Text("Quantity: ${pkg.quantity}", fontSize = 12.sp, color = Color.Gray)
-                Text("Tag Color: ${pkg.tagColor}", fontSize = 12.sp, color = Color.Gray)
-                Text("Tag ID: ${pkg.tagId}", fontSize = 12.sp, color = Color.Gray)
-                if (i < shipment.packages.lastIndex) AddSpace(8)
+fun EnhancedCounter(label: String, value: String, onValueChange: (Int) -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, modifier = Modifier.weight(1f), fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { onValueChange(-100) }, modifier = Modifier.background(Color.Gray.copy(alpha = 0.1f), CircleShape).size(32.dp)) {
+                Icon(Icons.Default.Remove, contentDescription = null, modifier = Modifier.size(16.dp))
             }
-            AddSpace(10)
-            Text("Total Fare: ${shipment.totalFare}", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = textThemeColor)
+            Text(value, modifier = Modifier.width(80.dp), textAlign = TextAlign.Center, fontWeight = FontWeight.Bold, color = actionTealColor)
+            IconButton(onClick = { onValueChange(100) }, modifier = Modifier.background(actionTealColor.copy(alpha = 0.1f), CircleShape).size(32.dp)) {
+                Icon(Icons.Default.Add, contentDescription = null, tint = actionTealColor, modifier = Modifier.size(16.dp))
+            }
         }
     }
 }
 
+@Composable
+fun DimensionItem(label: String, value: Int, onValueChange: (Int) -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, modifier = Modifier.weight(1f), fontSize = 13.sp, color = textThemeColor.copy(alpha = 0.6f))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("$value cm", fontWeight = FontWeight.SemiBold, color = textThemeColor)
+            Spacer(modifier = Modifier.width(16.dp))
+            IconButton(onClick = { onValueChange(value - 5) }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.KeyboardArrowDown, null) }
+            IconButton(onClick = { onValueChange(value + 5) }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.KeyboardArrowUp, null) }
+        }
+    }
+}
 
 // ─────────────────────────────────────────────
-// SHIPMENT REQUESTS SCREEN
+// SHIPMENT REQUESTS SCREEN (Overhauled)
 // ─────────────────────────────────────────────
 
 @Composable
 fun ShipmentRequestsScreen(
-    requests: List<ShipmentRequest> = listOf(
-        ShipmentRequest("Electronics Household (Private)", "Karachi to Peshawar", "~580 KGs", "Pickup at 02/09/2025...", "Amount: PKR 8,500,..."),
-        ShipmentRequest("Cement Bags (Shared)", "Multan to Peshawar", "~70 KGs", "Pickup at 02/09/2025", "Amount: PKR 65,000,...", true),
-        ShipmentRequest("Sofa Set (Shared)", "Karachi to Peshawar", "~600 KGs", "Pickup at 02/09/2025", "Amount: PKR 85,000,...", true),
-        ShipmentRequest("Glassware (Shared)", "Multan to Peshawar", "~5 KGs", "Pickup at 02/09/2025", "Amount: PKR 115,000,...", true),
-    ),
+    requests: List<ShipmentRequest> = emptyList(),
     onDetailsClick: (ShipmentRequest) -> Unit = {},
     onAccept: (ShipmentRequest) -> Unit = {},
     onDecline: (ShipmentRequest) -> Unit = {},
@@ -506,10 +516,6 @@ fun ShipmentRequestsScreen(
     onProfileClick: () -> Unit = {},
     currentTab: DriverDestination = DriverDashboard()
 ) {
-    val backgroundGradient = remember {
-        Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
-    }
-
     Scaffold(
         bottomBar = {
             DashboardBottomBar(
@@ -521,100 +527,109 @@ fun ShipmentRequestsScreen(
                 onProfileClick = onProfileClick
             )
         },
-        containerColor = Color.Transparent
+        containerColor = backgroundColor
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(backgroundGradient)
                 .padding(innerPadding)
-                .padding(horizontal = 28.dp)
-                .padding(top = 48.dp)
-                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp)
         ) {
-            AppHeading("Shipment Requests")
-            AddSpace(12)
+            Spacer(modifier = Modifier.height(32.dp))
+            Text("Shipment Requests", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = textThemeColor)
+            Text("${requests.size} pending opportunities", fontSize = 14.sp, color = textThemeColor.copy(alpha = 0.6f))
+            
+            Spacer(modifier = Modifier.height(24.dp))
 
-            Text(
-                text = "${requests.size} Requests Found",
-                fontSize = 12.sp,
-                color = Color.Gray,
-                modifier = Modifier.align(Alignment.End)
-            )
-            AddSpace(12)
-
-            requests.forEach { request ->
-                ShipmentRequestCard(
-                    request = request,
-                    onDetailsClick = { onDetailsClick(request) },
-                    onAccept = { onAccept(request) },
-                    onDecline = { onDecline(request) }
-                )
-                AddSpace(12)
+            if (requests.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.Inbox, contentDescription = null, modifier = Modifier.size(64.dp), tint = Color.Gray.copy(alpha = 0.3f))
+                        Text("No requests right now", color = Color.Gray)
+                    }
+                }
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(bottom = 24.dp)
+                ) {
+                    items(requests.size) { index ->
+                        RequestCard(
+                            request = requests[index],
+                            onDetails = { onDetailsClick(requests[index]) },
+                            onAccept = { onAccept(requests[index]) },
+                            onDecline = { onDecline(requests[index]) }
+                        )
+                    }
+                }
             }
-
-            AddSpace(24)
         }
     }
 }
 
 @Composable
-fun ShipmentRequestCard(
+fun RequestCard(
     request: ShipmentRequest,
-    onDetailsClick: () -> Unit,
+    onDetails: () -> Unit,
     onAccept: () -> Unit,
     onDecline: () -> Unit
 ) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        color = Color.White,
-        shadowElevation = 2.dp
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(request.title, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = textThemeColor)
-                Text(request.route, fontSize = 12.sp, color = Color.Gray)
-                Text(request.weight, fontSize = 12.sp, color = Color.Gray)
-                Text(request.pickup, fontSize = 12.sp, color = Color.Gray)
-                Text(request.amount, fontSize = 12.sp, color = Color.Gray)
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            Column(
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+    GlassCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Surface(
+                modifier = Modifier.size(48.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = actionTealColor.copy(alpha = 0.1f)
             ) {
-                SmallActionButton(
-                    text = "Details",
-                    containerColor = Color(0xFF333333),
-                    enabled = true,
-                    onClick = onDetailsClick
-                )
-                SmallActionButton(
-                    text = "Accept",
-                    containerColor = Color(0xFF4CAF50),
-                    enabled = true,
-                    onClick = onAccept
-                )
-                SmallActionButton(
-                    text = "Decline",
-                    containerColor = Color(0xFFFF1744),
-                    enabled = true,
-                    onClick = onDecline
-                )
+                Icon(Icons.Default.LocalShipping, contentDescription = null, tint = actionTealColor, modifier = Modifier.padding(12.dp))
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(request.title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text(request.route, fontSize = 12.sp, color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            LabelValue("Weight", request.weight)
+            LabelValue("Fare", request.amount)
+        }
+        
+        Spacer(modifier = Modifier.height(20.dp))
+        
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedButton(
+                onClick = onDetails,
+                modifier = Modifier.weight(1f).height(44.dp),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, actionTealColor.copy(alpha = 0.3f))
+            ) {
+                Text("View Details", color = actionTealColor, fontSize = 13.sp)
+            }
+            Button(
+                onClick = onAccept,
+                modifier = Modifier.weight(1f).height(44.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
+            ) {
+                Text("Accept", fontSize = 13.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
 }
 
+@Composable
+fun LabelValue(label: String, value: String) {
+    Column {
+        Text(label, fontSize = 11.sp, color = Color.Gray)
+        Text(value, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textThemeColor)
+    }
+}
 
 // ─────────────────────────────────────────────
-// SHIPMENT REQUEST DETAIL SCREEN
+// SHIPMENT REQUEST DETAIL SCREEN (Overhauled)
 // ─────────────────────────────────────────────
 
 @Composable
@@ -642,10 +657,6 @@ fun ShipmentRequestDetailScreen(
     onProfileClick: () -> Unit = {},
     currentTab: DriverDestination = DriverDashboard()
 ) {
-    val backgroundGradient = remember {
-        Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
-    }
-
     Scaffold(
         bottomBar = {
             DashboardBottomBar(
@@ -657,144 +668,102 @@ fun ShipmentRequestDetailScreen(
                 onProfileClick = onProfileClick
             )
         },
-        containerColor = Color.Transparent
+        containerColor = backgroundColor
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(backgroundGradient)
                 .padding(innerPadding)
-                .padding(horizontal = 28.dp)
-                .padding(top = 48.dp)
+                .padding(horizontal = 24.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            AppHeading("Shipment Requests")
-            AddSpace(16)
-
-            // Back row
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onBack() }
-                    .padding(bottom = 16.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = textThemeColor,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Request Details", fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = textThemeColor)
+            Spacer(modifier = Modifier.height(24.dp))
+            IconButton(onClick = onBack, modifier = Modifier.background(Color.White, CircleShape)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
             }
-
-            // Main card
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                color = Color.White,
-                shadowElevation = 2.dp
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(request.title, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = textThemeColor)
-                            AddSpace(4)
-                            Text("Pickup Address: $pickupAddress", fontSize = 12.sp, color = Color.Gray)
-                            Text("Delivery Address: $deliveryAddress", fontSize = 12.sp, color = Color.Gray)
-                            Text("Total Weight: ${request.weight}", fontSize = 12.sp, color = Color.Gray)
-                            Text("Pickup Date: ${request.pickup}", fontSize = 12.sp, color = Color.Gray)
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("Request Details", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            GlassCard {
+                Text(request.title, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = actionTealColor)
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                DetailItem(Icons.Default.PinDrop, "Pickup", pickupAddress)
+                DetailItem(Icons.Default.Flag, "Delivery", deliveryAddress)
+                DetailItem(Icons.Default.CalendarToday, "Pickup Date", request.pickup)
+                DetailItem(Icons.Default.Scale, "Total Weight", request.weight)
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            SectionTitle("Items to carry")
+            
+            packages.forEach { pkg ->
+                GlassCard(modifier = Modifier.padding(vertical = 4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(modifier = Modifier.size(40.dp), shape = RoundedCornerShape(8.dp), color = actionTealColor.copy(alpha = 0.1f)) {
+                            Icon(Icons.Default.Inventory2, null, modifier = Modifier.padding(8.dp), tint = actionTealColor)
                         }
-                        // Truck icon placeholder
-                        Surface(
-                            modifier = Modifier.size(60.dp, 40.dp),
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFFFFF9C4)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text("🚛", fontSize = 24.sp)
-                            }
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column {
+                            Text(pkg.name, fontWeight = FontWeight.Bold)
+                            Text("Qty: ${pkg.quantity}", fontSize = 12.sp, color = Color.Gray)
                         }
                     }
-
-                    AddSpace(16)
-
-                    packages.forEachIndexed { i, pkg ->
-                        Text(
-                            "Package ${i + 1}: ${pkg.name}",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            color = textThemeColor
-                        )
-                        Text("Quantity: ${pkg.quantity}", fontSize = 12.sp, color = Color.Gray)
-                        if (pkg.dimensions != null) {
-                            Text("Dimensions", fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Medium)
-                            Text("  Length: ${pkg.dimensions.split("x")[0].trim()}", fontSize = 12.sp, color = Color.Gray)
-                            Text("  Width: ${pkg.dimensions.split("x").getOrNull(1)?.trim() ?: ""}", fontSize = 12.sp, color = Color.Gray)
-                            Text("  Height: ${pkg.dimensions.split("x").getOrNull(2)?.trim() ?: ""}", fontSize = 12.sp, color = Color.Gray)
-                        }
-                        if (pkg.weight != null) Text("Weight: ${pkg.weight}", fontSize = 12.sp, color = Color.Gray)
-                        if (pkg.note != null) Text(pkg.note, fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Medium)
-                        if (i < packages.lastIndex) AddSpace(10)
+                    if (pkg.dimensions != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Size: ${pkg.dimensions}", fontSize = 12.sp, color = Color.Gray)
                     }
-
-                    AddSpace(12)
-                    Text("Total Fare: ${request.amount}", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = textThemeColor)
                 }
             }
-
-            AddSpace(24)
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
+            
+            Spacer(modifier = Modifier.height(32.dp))
+            
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
                     onClick = onDecline,
-                    modifier = Modifier.weight(1f).height(52.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF1744)),
-                    shape = RoundedCornerShape(12.dp)
+                    modifier = Modifier.weight(1f).height(56.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = statusRedColor.copy(alpha = 0.1f), contentColor = statusRedColor),
+                    shape = RoundedCornerShape(16.dp)
                 ) {
-                    Text("Decline", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text("Decline", fontWeight = FontWeight.Bold)
                 }
                 Button(
                     onClick = onAccept,
-                    modifier = Modifier.weight(1f).height(52.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
-                    shape = RoundedCornerShape(12.dp)
+                    modifier = Modifier.weight(1f).height(56.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = actionTealColor),
+                    shape = RoundedCornerShape(16.dp)
                 ) {
-                    Text("Accept", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text("Accept Request", fontWeight = FontWeight.Bold)
                 }
             }
-
-            AddSpace(24)
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }
 
+@Composable
+fun DetailItem(icon: ImageVector, label: String, value: String) {
+    Row(modifier = Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, modifier = Modifier.size(16.dp), tint = Color.Gray)
+        Spacer(modifier = Modifier.width(12.dp))
+        Column {
+            Text(label, fontSize = 10.sp, color = Color.Gray)
+            Text(value, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        }
+    }
+}
 
 // ─────────────────────────────────────────────
-// CUSTOMERS SCREEN
+// CUSTOMERS SCREEN (Overhauled)
 // ─────────────────────────────────────────────
 
 @Composable
 fun CustomersScreen(
-    activeDeliveries: List<CustomerDelivery> = listOf(
-        CustomerDelivery("Faheem", "#TR1064", "House Electronics", "Vihari Truck Adda", "Multan"),
-        CustomerDelivery("Sarfaraz", "#TR1065", "House Electronics", "Vihari Truck Adda", "Multan")
-    ),
-    pendingPickups: List<CustomerDelivery> = listOf(
-        CustomerDelivery("Faheem", "#TR1064", "House Electronics", "Vihari Truck Adda", "Multan")
-    ),
-    upcomingPickups: List<CustomerDelivery> = listOf(
-        CustomerDelivery("Faheem", "#TR1064", "House Electronics", "Vihari Truck Adda", "Multan", "In 4 DAYS"),
-        CustomerDelivery("Sarfaraz", "#TR1065", "Cement Bags", "Mauripur Truck Stand", "Karachi", "In 6 DAYS")
-    ),
+    activeDeliveries: List<CustomerDelivery> = emptyList(),
+    pendingPickups: List<CustomerDelivery> = emptyList(),
+    upcomingPickups: List<CustomerDelivery> = emptyList(),
     onDetailsClick: (CustomerDelivery) -> Unit = {},
     onConfirmClick: (CustomerDelivery) -> Unit = {},
     onHomeClick: () -> Unit = {},
@@ -804,10 +773,6 @@ fun CustomersScreen(
     onProfileClick: () -> Unit = {},
     currentTab: DriverDestination = DriverDashboard()
 ) {
-    val backgroundGradient = remember {
-        Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
-    }
-
     Scaffold(
         bottomBar = {
             DashboardBottomBar(
@@ -819,164 +784,100 @@ fun CustomersScreen(
                 onProfileClick = onProfileClick
             )
         },
-        containerColor = Color.Transparent
+        containerColor = backgroundColor
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(backgroundGradient)
                 .padding(innerPadding)
-                .padding(horizontal = 28.dp)
-                .padding(top = 48.dp)
+                .padding(horizontal = 24.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            AppHeading("Customers")
-            AddSpace(20)
+            Spacer(modifier = Modifier.height(32.dp))
+            Text("Deliveries", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = textThemeColor)
+            
+            Spacer(modifier = Modifier.height(24.dp))
 
-            // Active Deliveries
-            AppSectionHeader("Active Deliveries")
-            activeDeliveries.forEach { delivery ->
-                CustomerDeliveryCard(
-                    delivery = delivery,
-                    showConfirm = false,
-                    onDetailsClick = { onDetailsClick(delivery) }
-                )
-                AddSpace(8)
-            }
-
-            AddSpace(16)
-
-            // Pending Pickups
-            AppSectionHeader("Pending Pickups")
-            pendingPickups.forEach { delivery ->
-                CustomerDeliveryCard(
-                    delivery = delivery,
-                    showConfirm = true,
-                    onDetailsClick = { onDetailsClick(delivery) },
-                    onConfirmClick = { onConfirmClick(delivery) }
-                )
-                AddSpace(8)
-            }
-
-            AddSpace(16)
-
-            // Upcoming Pickups
-            AppSectionHeader("Upcoming Pickups")
-            upcomingPickups.forEach { delivery ->
-                CustomerDeliveryCard(
-                    delivery = delivery,
-                    showConfirm = false,
-                    onDetailsClick = { onDetailsClick(delivery) }
-                )
-                AddSpace(8)
-            }
-
-            AddSpace(24)
+            SectionTitle("In Progress")
+            activeDeliveries.forEach { DeliveryInteractiveCard(it, statusBlueColor, onDetailsClick) }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            SectionTitle("Ready for Pickup")
+            pendingPickups.forEach { DeliveryInteractiveCard(it, statusOrangeColor, onDetailsClick, onConfirmClick) }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            SectionTitle("Upcoming")
+            upcomingPickups.forEach { DeliveryInteractiveCard(it, Color.Gray, onDetailsClick) }
+            
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }
 
 @Composable
-fun CustomerDeliveryCard(
+fun SectionTitle(text: String) {
+    Text(
+        text = text.uppercase(),
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Bold,
+        color = textThemeColor.copy(alpha = 0.4f),
+        modifier = Modifier.padding(vertical = 12.dp)
+    )
+}
+
+@Composable
+fun DeliveryInteractiveCard(
     delivery: CustomerDelivery,
-    showConfirm: Boolean,
-    onDetailsClick: () -> Unit,
-    onConfirmClick: () -> Unit = {}
+    accentColor: Color,
+    onDetails: (CustomerDelivery) -> Unit,
+    onConfirm: ((CustomerDelivery) -> Unit)? = null
 ) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        color = Color.White,
-        shadowElevation = 2.dp
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+    GlassCard(modifier = Modifier.padding(vertical = 8.dp).clickable { onDetails(delivery) }) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(4.dp, 40.dp)
+                    .clip(CircleShape)
+                    .background(accentColor)
+            )
+            Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "${delivery.customerName} ${delivery.trackingId}",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    color = textThemeColor
-                )
-                Text(
-                    text = "Shipment Description: ${delivery.description}",
-                    fontSize = 12.sp,
-                    color = Color.Gray
-                )
-                Text(
-                    text = "Checkpoint: ${delivery.checkpoint}",
-                    fontSize = 12.sp,
-                    color = Color.Gray
-                )
-                Text(
-                    text = delivery.city,
-                    fontSize = 12.sp,
-                    color = Color.Gray
-                )
-                if (delivery.daysUntil != null) {
-                    Text(
-                        text = delivery.daysUntil,
-                        fontSize = 12.sp,
-                        color = actionTealColor,
-                        fontWeight = FontWeight.Medium
-                    )
+                Text(delivery.customerName, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text(delivery.trackingId, fontSize = 12.sp, color = accentColor, fontWeight = FontWeight.SemiBold)
+            }
+            if (delivery.daysUntil != null) {
+                Surface(color = accentColor.copy(alpha = 0.1f), shape = RoundedCornerShape(8.dp)) {
+                    Text(delivery.daysUntil, modifier = Modifier.padding(6.dp), fontSize = 10.sp, color = accentColor, fontWeight = FontWeight.Bold)
                 }
             }
-            Column(
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(delivery.description, fontSize = 13.sp, color = textThemeColor.copy(alpha = 0.7f))
+        
+        if (onConfirm != null) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(
+                onClick = { onConfirm(delivery) },
+                modifier = Modifier.fillMaxWidth().height(40.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = accentColor)
             ) {
-                if (showConfirm) {
-                    SmallActionButton(
-                        text = "Confirm",
-                        containerColor = Color(0xFF4CAF50),
-                        enabled = true,
-                        onClick = onConfirmClick
-                    )
-                }
-                SmallActionButton(
-                    text = "Details",
-                    containerColor = Color(0xFF333333),
-                    enabled = true,
-                    onClick = onDetailsClick
-                )
+                Text("Confirm Pickup", fontWeight = FontWeight.Bold)
             }
         }
     }
 }
 
-
 // ─────────────────────────────────────────────
-// CUSTOMER SHIPMENTS DETAIL (Customers > Shipments)
+// CUSTOMER SHIPMENTS DETAIL SCREEN (Overhauled)
 // ─────────────────────────────────────────────
 
 @Composable
 fun CustomerShipmentsDetailScreen(
-    shipments: List<ShipmentDetail> = listOf(
-        ShipmentDetail(
-            title = "Electronics Household",
-            totalWeight = "~580 KGs",
-            recipientName = "Kamran Ali",
-            totalFare = "25570.0 PKR",
-            packages = listOf(
-                ShipmentPackage("Refrigerator", 1, "Red", "PESHAWA#122025"),
-                ShipmentPackage("Sofa", 3, "Red", "PESHAWA#122026")
-            )
-        ),
-        ShipmentDetail(
-            title = "Sofa Set",
-            totalWeight = "~270 KGs",
-            recipientName = "Kamran Ali",
-            totalFare = "14570.0 PKR",
-            packages = listOf(
-                ShipmentPackage("Refrigerator", 1, "Red", "PESHAWA#122025")
-            )
-        )
-    ),
+    shipments: List<ShipmentDetail> = emptyList(),
     onBack: () -> Unit = {},
     onHomeClick: () -> Unit = {},
     onOrdersClick: () -> Unit = {},
@@ -985,10 +886,6 @@ fun CustomerShipmentsDetailScreen(
     onProfileClick: () -> Unit = {},
     currentTab: DriverDestination = DriverDashboard()
 ) {
-    val backgroundGradient = remember {
-        Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
-    }
-
     Scaffold(
         bottomBar = {
             DashboardBottomBar(
@@ -1000,63 +897,68 @@ fun CustomerShipmentsDetailScreen(
                 onProfileClick = onProfileClick
             )
         },
-        containerColor = Color.Transparent
+        containerColor = backgroundColor
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(backgroundGradient)
                 .padding(innerPadding)
-                .padding(horizontal = 28.dp)
-                .padding(top = 48.dp)
+                .padding(horizontal = 24.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            AppHeading("Customers")
-            AddSpace(16)
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onBack() }
-                    .padding(bottom = 16.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = textThemeColor,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Shipments", fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = textThemeColor)
+            Spacer(modifier = Modifier.height(24.dp))
+            IconButton(onClick = onBack, modifier = Modifier.background(Color.White, CircleShape)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
             }
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("Shipment Details", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            
+            Spacer(modifier = Modifier.height(24.dp))
 
-            shipments.forEach { shipment ->
-                ShipmentDetailCard(shipment = shipment)
-                AddSpace(12)
+            if (shipments.isEmpty()) {
+                GlassCard {
+                    Text("No shipment data available.", color = Color.Gray, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                }
+            } else {
+                shipments.forEach { shipment ->
+                    GlassCard(modifier = Modifier.padding(bottom = 16.dp)) {
+                        Text(shipment.title, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = actionTealColor)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Weight: ${shipment.totalWeight}", fontSize = 14.sp, color = Color.Gray)
+                        Text("Fare: ${shipment.totalFare}", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f))
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        shipment.packages.forEachIndexed { index, pkg ->
+                            Row(verticalAlignment = Alignment.Top, modifier = Modifier.padding(vertical = 4.dp)) {
+                                Surface(modifier = Modifier.size(24.dp), shape = CircleShape, color = actionTealColor.copy(alpha = 0.1f)) {
+                                    Text("${index + 1}", modifier = Modifier.fillMaxSize(), textAlign = TextAlign.Center, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = actionTealColor)
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(pkg.name, fontWeight = FontWeight.SemiBold)
+                                    Text("Qty: ${pkg.quantity} • Tag: ${pkg.tagId}", fontSize = 12.sp, color = Color.Gray)
+                                }
+                            }
+                        }
+                    }
+                }
             }
-
-            AddSpace(24)
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }
 
-
 // ─────────────────────────────────────────────
-// ACTIVITY SCREEN (Chat + Notifications)
+// ACTIVITY & PROFILE (Visual Tweaks)
 // ─────────────────────────────────────────────
 
 @Composable
 fun ActivityScreen(
-    chats: List<ChatContact> = listOf(
-        ChatContact("Kamran", "Hello.", "1h", true),
-        ChatContact("Waleed", "Received", "1h", true),
-        ChatContact("Customer Support", "", "1h", false, isSupport = true)
-    ),
-    notifications: List<NotificationItem> = listOf(
-        NotificationItem("You have received a review from Ahmed on (Karachi to Lahore)", "1h", true),
-        NotificationItem("Waleed sent you a message", "3h", true)
-    ),
+    chats: List<ChatContact> = emptyList(),
+    notifications: List<NotificationItem> = emptyList(),
     onChatClick: (ChatContact) -> Unit = {},
     onHomeClick: () -> Unit = {},
     onOrdersClick: () -> Unit = {},
@@ -1065,10 +967,6 @@ fun ActivityScreen(
     onProfileClick: () -> Unit = {},
     currentTab: DriverDestination = DriverDashboard()
 ) {
-    val backgroundGradient = remember {
-        Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
-    }
-
     var selectedTab by remember { mutableStateOf("Chats") }
 
     Scaffold(
@@ -1082,131 +980,94 @@ fun ActivityScreen(
                 onProfileClick = onProfileClick
             )
         },
-        containerColor = Color.Transparent
+        containerColor = backgroundColor
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(backgroundGradient)
                 .padding(innerPadding)
-                .padding(horizontal = 28.dp)
-                .padding(top = 48.dp)
+                .padding(horizontal = 24.dp)
         ) {
-            AppHeading("Activity")
-            AddSpace(16)
+            Spacer(modifier = Modifier.height(32.dp))
+            Text("Activity", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = textThemeColor)
+            
+            Spacer(modifier = Modifier.height(24.dp))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TabButton(text = "Chats", isSelected = selectedTab == "Chats", onClick = { selectedTab = "Chats" })
-                TabButton(text = "Notifications", isSelected = selectedTab == "Notifications", onClick = { selectedTab = "Notifications" })
-            }
-
-            AddSpace(16)
-
-            if (selectedTab == "Chats") {
-                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    chats.forEach { chat ->
-                        ChatListItem(chat = chat, onClick = { onChatClick(chat) })
-                        HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f))
-                    }
-                }
-            } else {
-                Column(
-                    modifier = Modifier.verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    notifications.forEach { notification ->
-                        NotificationCard(notification = notification)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun ChatListItem(chat: ChatContact, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Unread dot
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .background(if (chat.hasUnread) Color.Red else Color.Transparent, CircleShape)
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-
-        // Avatar
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(if (chat.isSupport) Color(0xFF1B5E20) else Color(0xFFBDBDBD)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.Person,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(24.dp)
+            InteractiveTabRow(
+                tabs = listOf("Chats", "Notifications"),
+                selectedTab = selectedTab,
+                onTabSelected = { selectedTab = it }
             )
-        }
 
-        Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-        Column(modifier = Modifier.weight(1f)) {
-            Text(chat.name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = textThemeColor)
-            if (chat.lastMessage.isNotEmpty()) {
-                Text(chat.lastMessage, fontSize = 13.sp, color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (selectedTab == "Chats") {
+                    items(chats.size) { index -> 
+                        EnhancedChatListItem(chats[index], onClick = { onChatClick(chats[index]) })
+                    }
+                } else {
+                    items(notifications.size) { index ->
+                        EnhancedNotificationCard(notifications[index])
+                    }
+                }
             }
         }
-
-        Text(chat.time, fontSize = 12.sp, color = Color.Gray)
     }
 }
 
 @Composable
-fun NotificationCard(notification: NotificationItem) {
+fun EnhancedChatListItem(chat: ChatContact, onClick: () -> Unit) {
     Surface(
+        onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = Color.White,
-        shadowElevation = 1.dp
+        color = Color.Transparent
     ) {
         Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.Top
+            modifier = Modifier.padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .offset(y = 4.dp)
-                    .background(if (notification.hasUnread) Color.Red else Color.Transparent, CircleShape)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(notification.message, fontSize = 13.sp, color = textThemeColor)
-                AddSpace(4)
-                Text("Click to see the details", fontSize = 11.sp, color = Color.Gray)
+            Box {
+                Surface(modifier = Modifier.size(56.dp), shape = CircleShape, color = Color.White) {
+                    Icon(Icons.Default.Person, null, modifier = Modifier.padding(12.dp), tint = Color.LightGray)
+                }
+                if (chat.hasUnread) {
+                    Box(modifier = Modifier.size(12.dp).clip(CircleShape).background(statusRedColor).border(2.dp, backgroundColor, CircleShape).align(Alignment.TopEnd))
+                }
             }
-            Text(notification.time, fontSize = 12.sp, color = Color.Gray)
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(chat.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(chat.time, fontSize = 12.sp, color = Color.Gray)
+                }
+                Text(chat.lastMessage, fontSize = 14.sp, color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }
 
-
-// ─────────────────────────────────────────────
-// PROFILE SCREEN
-// ─────────────────────────────────────────────
+@Composable
+fun EnhancedNotificationCard(notif: NotificationItem) {
+    GlassCard(modifier = Modifier.padding(vertical = 4.dp)) {
+        Row(verticalAlignment = Alignment.Top) {
+            Surface(modifier = Modifier.size(40.dp), shape = CircleShape, color = actionTealColor.copy(alpha = 0.1f)) {
+                Icon(Icons.Default.NotificationsActive, null, modifier = Modifier.padding(8.dp), tint = actionTealColor)
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(notif.message, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text(notif.time, fontSize = 11.sp, color = Color.Gray, modifier = Modifier.padding(top = 4.dp))
+            }
+        }
+    }
+}
 
 @Composable
 fun ProfileScreen(
+    fullName: String = "",
     profileImageUrl: String? = null,
-    rating: Float = 4.0f,
+    rating: Float = 4.8f,
     isSwitchedToCustomer: Boolean = false,
     onYourInformationClick: () -> Unit = {},
     onActivateRouteClick: () -> Unit = {},
@@ -1219,12 +1080,6 @@ fun ProfileScreen(
     onProfileClick: () -> Unit = {},
     currentTab: DriverDestination = DriverDashboard()
 ) {
-    val backgroundGradient = remember {
-        Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
-    }
-
-    var switchState by remember { mutableStateOf(isSwitchedToCustomer) }
-
     Scaffold(
         bottomBar = {
             DashboardBottomBar(
@@ -1236,125 +1091,452 @@ fun ProfileScreen(
                 onProfileClick = onProfileClick
             )
         },
-        containerColor = Color.Transparent
+        containerColor = backgroundColor
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(backgroundGradient)
                 .padding(innerPadding)
-                .padding(horizontal = 28.dp)
-                .padding(top = 48.dp)
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            AppHeading("Your Profile", modifier = Modifier.fillMaxWidth())
-            AddSpace(32)
-
-            // Profile Avatar
+            // Header Profile
             Box(
                 modifier = Modifier
-                    .size(120.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFE1D5F0)),
+                    .fillMaxWidth()
+                    .height(280.dp)
+                    .drawBehind {
+                        drawCircle(
+                            brush = Brush.radialGradient(listOf(actionTealColor.copy(alpha = 0.2f), Color.Transparent)),
+                            radius = size.width,
+                            center = Offset(size.width / 2, 0f)
+                        )
+                    },
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Default.Person,
-                    contentDescription = "Profile",
-                    modifier = Modifier.size(80.dp),
-                    tint = Color(0xFF5C3D8F)
-                )
-            }
-
-            AddSpace(20)
-
-            // Star Rating
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                val fullStars = rating.toInt()
-                val hasHalf = rating - fullStars >= 0.5f
-                val totalStars = 5
-                repeat(totalStars) { i ->
-                    val starColor = when {
-                        i < fullStars -> Color(0xFFFFB300)
-                        i == fullStars && hasHalf -> Color(0xFFFFB300).copy(alpha = 0.5f)
-                        else -> Color(0xFFE0E0E0)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(modifier = Modifier.size(120.dp)) {
+                        Surface(
+                            modifier = Modifier.fillMaxSize().shadow(12.dp, CircleShape),
+                            shape = CircleShape,
+                            color = Color.White
+                        ) {
+                            if (profileImageUrl != null) {
+                                AsyncImage(model = profileImageUrl, contentDescription = null, contentScale = ContentScale.Crop)
+                            } else {
+                                Icon(Icons.Default.Person, null, modifier = Modifier.padding(24.dp), tint = actionTealColor)
+                            }
+                        }
+                        Surface(
+                            modifier = Modifier.size(36.dp).align(Alignment.BottomEnd),
+                            shape = CircleShape,
+                            color = actionTealColor,
+                            shadowElevation = 4.dp
+                        ) {
+                            Icon(Icons.Default.Edit, null, modifier = Modifier.padding(8.dp), tint = Color.White)
+                        }
                     }
-                    Text("★", fontSize = 28.sp, color = starColor)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(fullName, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Star, null, tint = statusOrangeColor, modifier = Modifier.size(16.dp))
+                        Text(" $rating Driver Rating", fontSize = 14.sp, color = Color.Gray, fontWeight = FontWeight.Medium)
+                    }
                 }
             }
 
-            AddSpace(32)
-
-            // Info and Route menu items
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                color = Color.White,
-                shadowElevation = 2.dp
-            ) {
-                Column {
-                    ProfileMenuItem(text = "Your information", onClick = onYourInformationClick)
-                    HorizontalDivider(color = Color.LightGray.copy(alpha = 0.4f))
-                    ProfileMenuItem(text = "Manage Routes", onClick = onActivateRouteClick)
+            // Menu Items
+            Column(modifier = Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ProfileMenuCard("Personal Information", Icons.Default.Badge, onYourInformationClick)
+                ProfileMenuCard("Route Management", Icons.Default.Route, onActivateRouteClick)
+                ProfileMenuCard("Settings & Security", Icons.Default.Settings, {})
+                
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                // Role Switch Card
+                GlassCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.SwapHoriz, null, tint = statusBlueColor)
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text("Switch to Customer Mode", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                        Switch(checked = isSwitchedToCustomer, onCheckedChange = onSwitchRoleToggle)
+                    }
                 }
-            }
-
-            Spacer(modifier = Modifier.weight(1f))
-            AddSpace(32)
-
-            HorizontalDivider(color = Color.LightGray)
-            AddSpace(16)
-
-            // Logout + Switch row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { onLogoutClick() }
+                
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                Button(
+                    onClick = onLogoutClick,
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = statusRedColor.copy(alpha = 0.1f), contentColor = statusRedColor),
+                    shape = RoundedCornerShape(16.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .background(Color(0xFFFF1744), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("—", color = Color.White, fontWeight = FontWeight.Bold)
-                    }
+                    Icon(Icons.Default.Logout, null)
                     Spacer(modifier = Modifier.width(12.dp))
-                    Text("Logout", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = textThemeColor)
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Switch to\nCustomer", fontSize = 11.sp, color = Color.Gray, modifier = Modifier.padding(end = 8.dp))
-                    Switch(
-                        checked = switchState,
-                        onCheckedChange = {
-                            switchState = it
-                            onSwitchRoleToggle(it)
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF333333),
-                            uncheckedThumbColor = Color.White,
-                            uncheckedTrackColor = Color.Gray
-                        )
-                    )
+                    Text("Logout Session", fontWeight = FontWeight.Bold)
                 }
             }
-
-            AddSpace(24)
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }
 
+@Composable
+fun ProfileMenuCard(title: String, icon: ImageVector, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = Color.White,
+        shadowElevation = 2.dp
+    ) {
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(modifier = Modifier.size(40.dp), shape = RoundedCornerShape(10.dp), color = backgroundColor.copy(alpha = 0.4f)) {
+                Icon(icon, null, modifier = Modifier.padding(8.dp), tint = textThemeColor)
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Text(title, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Icon(Icons.Default.ChevronRight, null, tint = Color.LightGray)
+        }
+    }
+}
 
 // ─────────────────────────────────────────────
-// DELIVERY DELAY SCREEN
+// (Keeping Other Screens Simple but Styled)
 // ─────────────────────────────────────────────
+
+@Composable
+fun YourInformationScreen(
+    fullName: String = "",
+    phone: String = "",
+    email: String = "",
+    cnic: String = "",
+    licenseNo: String = "",
+    onBack: () -> Unit = {},
+    onEditClick: () -> Unit = {},
+    onHomeClick: () -> Unit = {},
+    onOrdersClick: () -> Unit = {},
+    onHistoryClick: () -> Unit = {},
+    onChatClick: () -> Unit = {},
+    onProfileClick: () -> Unit = {},
+    currentTab: DriverDestination = DriverDashboard()
+) {
+    Scaffold(
+        bottomBar = {
+            DashboardBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick)
+        },
+        containerColor = backgroundColor
+    ) { innerPadding ->
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp).verticalScroll(rememberScrollState())) {
+            Spacer(modifier = Modifier.height(24.dp))
+            IconButton(onClick = onBack, modifier = Modifier.background(Color.White, CircleShape)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("Personal Details", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            GlassCard {
+                DetailRow("Full Name", fullName)
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color.Gray.copy(alpha = 0.1f))
+                DetailRow("Phone", phone)
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color.Gray.copy(alpha = 0.1f))
+                DetailRow("Email", email)
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color.Gray.copy(alpha = 0.1f))
+                DetailRow("License", licenseNo)
+            }
+            
+            Spacer(modifier = Modifier.height(32.dp))
+            Button(onClick = onEditClick, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)) {
+                Text("Edit Profile", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+fun DetailRow(label: String, value: String) {
+    Column {
+        Text(label, fontSize = 12.sp, color = Color.Gray)
+        Text(value, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+// ─────────────────────────────────────────────
+// CHAT & OTHERS (Basic Overhaul)
+// ─────────────────────────────────────────────
+
+@Composable
+fun ChatScreen(
+    contactName: String = "Kamran",
+    contactStatus: String = "Online",
+    contactImageUrl: String? = null,
+    messages: List<ChatMessage> = emptyList(),
+    onBack: () -> Unit = {},
+    onCallClick: () -> Unit = {},
+    onSendMessage: (String) -> Unit = {}
+) {
+    var messageText by remember { mutableStateOf("") }
+    
+    Column(modifier = Modifier.fillMaxSize().background(backgroundColor).imePadding()) {
+        // Chat Header
+        Surface(modifier = Modifier.fillMaxWidth(), shadowElevation = 4.dp, color = Color.White) {
+            Row(modifier = Modifier.padding(top = 48.dp, bottom = 12.dp, start = 16.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
+                Spacer(modifier = Modifier.width(8.dp))
+                Surface(modifier = Modifier.size(40.dp), shape = CircleShape, color = actionTealColor.copy(alpha = 0.1f)) {
+                    Icon(Icons.Default.Person, null, modifier = Modifier.padding(8.dp), tint = actionTealColor)
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(contactName, fontWeight = FontWeight.Bold)
+                    Text(contactStatus, fontSize = 11.sp, color = actionTealColor)
+                }
+                IconButton(onClick = onCallClick) { Icon(Icons.Default.Call, null, tint = actionTealColor) }
+            }
+        }
+        
+        // Messages Area
+        Box(modifier = Modifier.weight(1f).padding(horizontal = 16.dp)) {
+            LazyColumn(modifier = Modifier.fillMaxSize(), reverseLayout = false, verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
+                items(messages.size) { index -> 
+                    val msg = messages[index]
+                    ChatBubbleEnhanced(msg)
+                }
+            }
+        }
+        
+        // Input Area
+        Surface(modifier = Modifier.fillMaxWidth(), color = Color.White) {
+            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextField(
+                    value = messageText,
+                    onValueChange = { messageText = it },
+                    placeholder = { Text("Write a message...") },
+                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(24.dp)),
+                    colors = TextFieldDefaults.colors(focusedContainerColor = backgroundColor.copy(alpha = 0.3f), unfocusedContainerColor = backgroundColor.copy(alpha = 0.3f), focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Surface(modifier = Modifier.size(48.dp), shape = CircleShape, color = actionTealColor) {
+                    IconButton(onClick = { if(messageText.isNotBlank()) { onSendMessage(messageText); messageText = "" } }) {
+                        Icon(Icons.AutoMirrored.Filled.Send, null, tint = Color.White)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ChatBubbleEnhanced(message: ChatMessage) {
+    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = if(message.isSentByMe) Alignment.CenterEnd else Alignment.CenterStart) {
+        Surface(
+            shape = RoundedCornerShape(
+                topStart = 16.dp, topEnd = 16.dp, 
+                bottomStart = if(message.isSentByMe) 16.dp else 2.dp, 
+                bottomEnd = if(message.isSentByMe) 2.dp else 16.dp
+            ),
+            color = if(message.isSentByMe) actionTealColor else Color.White,
+            shadowElevation = 1.dp
+        ) {
+            Text(message.content, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp), color = if(message.isSentByMe) Color.White else textThemeColor, fontSize = 14.sp)
+        }
+    }
+}
+
+// ─────────────────────────────────────────────
+// ADDITIONAL SCREENS (Simple Styling)
+// ─────────────────────────────────────────────
+
+@Composable
+fun ActivateRouteScreen(
+    activeRoute: String? = "No Active Route",
+    activeVia: String? = null,
+    nextRoute: String? = "No Next Route",
+    profileImageUrl: String? = null,
+    onTapToChange: () -> Unit = {},
+    onHomeClick: () -> Unit = {},
+    onOrdersClick: () -> Unit = {},
+    onHistoryClick: () -> Unit = {},
+    onChatClick: () -> Unit = {},
+    onProfileClick: () -> Unit = {},
+    currentTab: DriverDestination = DriverDashboard()
+) {
+    Scaffold(bottomBar = { DashboardBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) }, containerColor = backgroundColor) { innerPadding ->
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp).verticalScroll(rememberScrollState())) {
+            Spacer(modifier = Modifier.height(32.dp))
+            Text("Your Routes", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            Text("Active Route", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+            Spacer(modifier = Modifier.height(8.dp))
+            GlassCard(modifier = Modifier.clickable { onTapToChange() }) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.PlayCircle, null, tint = actionTealColor)
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(activeRoute ?: "None", fontWeight = FontWeight.Bold)
+                        if(activeVia != null) Text(activeVia, fontSize = 12.sp, color = Color.Gray)
+                    }
+                    Text("CHANGE", fontSize = 12.sp, color = actionTealColor, fontWeight = FontWeight.Bold)
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("Upcoming Route", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+            Spacer(modifier = Modifier.height(8.dp))
+            GlassCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Schedule, null, tint = Color.Gray)
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text(nextRoute ?: "No route scheduled", fontWeight = FontWeight.Medium, color = Color.Gray)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SelectRouteScreen(
+    savedRoutes: List<Pair<String, String?>> = emptyList(),
+    onRouteSelected: (Int) -> Unit = {},
+    onCreateNewRoute: () -> Unit = {},
+    onHomeClick: () -> Unit = {},
+    onOrdersClick: () -> Unit = {},
+    onHistoryClick: () -> Unit = {},
+    onChatClick: () -> Unit = {},
+    onProfileClick: () -> Unit = {},
+    currentTab: DriverDestination = DriverDashboard()
+) {
+    Scaffold(bottomBar = { DashboardBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) }, containerColor = backgroundColor) { innerPadding ->
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp)) {
+            Spacer(modifier = Modifier.height(32.dp))
+            Text("Select Route", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(savedRoutes.size) { index ->
+                    GlassCard(modifier = Modifier.clickable { onRouteSelected(index) }) {
+                        Text(savedRoutes[index].first, fontWeight = FontWeight.Bold)
+                        savedRoutes[index].second?.let { Text(it, fontSize = 12.sp, color = Color.Gray) }
+                    }
+                }
+            }
+            
+            Button(onClick = onCreateNewRoute, modifier = Modifier.fillMaxWidth().height(56.dp).padding(vertical = 16.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)) {
+                Icon(Icons.Default.Add, null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Create New Route")
+            }
+        }
+    }
+}
+
+@Composable
+fun CreateRouteStep1(
+    routePoints: SnapshotStateList<GeoPoint>,
+    onNext: () -> Unit = {},
+    onBack: () -> Unit = {},
+    onHomeClick: () -> Unit = {},
+    onOrdersClick: () -> Unit = {},
+    onHistoryClick: () -> Unit = {},
+    onChatClick: () -> Unit = {},
+    onProfileClick: () -> Unit = {},
+    currentTab: DriverDestination = DriverDashboard()
+) {
+    Scaffold(bottomBar = { DashboardBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) }, containerColor = backgroundColor) { innerPadding ->
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            Box(modifier = Modifier.weight(1f)) {
+                OSMContainer(points = routePoints.toList(), onMapClick = { routePoints.add(it) }, onMapLongClick = {})
+                
+                Surface(modifier = Modifier.align(Alignment.TopCenter).padding(16.dp).fillMaxWidth().shadow(4.dp, RoundedCornerShape(16.dp)), color = Color.White.copy(alpha = 0.9f), shape = RoundedCornerShape(16.dp)) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
+                        Text("Mark Route Points", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        Text("${routePoints.size} Points", fontSize = 12.sp, color = actionTealColor, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            
+            Surface(modifier = Modifier.fillMaxWidth(), color = Color.White, shadowElevation = 8.dp) {
+                Button(onClick = onNext, enabled = routePoints.size >= 2, modifier = Modifier.padding(16.dp).fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)) {
+                    Text("Confirm Route Points")
+                }
+            }
+        }
+    }
+}
+
+@RequiresApi(Build.VERSION_CODES.O)
+@Composable
+fun CreateRouteStep2(
+    minDate: LocalDate? = null,
+    onNext: (LocalDate, LocalDate) -> Unit = { _, _ -> },
+    onBack: () -> Unit = {},
+    onHomeClick: () -> Unit = {},
+    onOrdersClick: () -> Unit = {},
+    onHistoryClick: () -> Unit = {},
+    onChatClick: () -> Unit = {},
+    onProfileClick: () -> Unit = {},
+    currentTab: DriverDestination = DriverDashboard()
+) {
+    var departureDate by remember { mutableStateOf<LocalDate?>(null) }
+    var arrivalDate by remember { mutableStateOf<LocalDate?>(null) }
+
+    Scaffold(bottomBar = { DashboardBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) }, containerColor = backgroundColor) { innerPadding ->
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp).verticalScroll(rememberScrollState())) {
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("Set Dates", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            Text("Departure Date", fontWeight = FontWeight.Bold)
+            CalendarView(currentMonth = YearMonth.now(), selectedDate = departureDate, minDate = minDate, onDateSelected = { departureDate = it }, onMonthChanged = {})
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("Arrival Date", fontWeight = FontWeight.Bold)
+            CalendarView(currentMonth = YearMonth.now(), selectedDate = arrivalDate, minDate = departureDate ?: minDate, onDateSelected = { arrivalDate = it }, onMonthChanged = {})
+            
+            Spacer(modifier = Modifier.height(32.dp))
+            Button(onClick = { onNext(departureDate!!, arrivalDate!!) }, enabled = departureDate != null && arrivalDate != null, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) {
+                Text("Continue")
+            }
+            Spacer(modifier = Modifier.height(32.dp))
+        }
+    }
+}
+
+@Composable
+fun CreateRouteStep3(
+    onSave: (Double) -> Unit = {},
+    onBack: () -> Unit = {},
+    isLoading: Boolean = false,
+    onHomeClick: () -> Unit = {},
+    onOrdersClick: () -> Unit = {},
+    onHistoryClick: () -> Unit = {},
+    onChatClick: () -> Unit = {},
+    onProfileClick: () -> Unit = {},
+    currentTab: DriverDestination = DriverDashboard()
+) {
+    var fare by remember { mutableFloatStateOf(1000f) }
+    
+    Scaffold(bottomBar = { DashboardBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) }, containerColor = backgroundColor) { innerPadding ->
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Spacer(modifier = Modifier.height(32.dp))
+            Text("Set Fare", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            Spacer(modifier = Modifier.height(64.dp))
+            
+            Text("PKR ${fare.toInt()}", fontSize = 48.sp, fontWeight = FontWeight.ExtraBold, color = actionTealColor)
+            Slider(value = fare, onValueChange = { fare = it }, valueRange = 100f..50000f, modifier = Modifier.padding(32.dp), colors = SliderDefaults.colors(thumbColor = actionTealColor, activeTrackColor = actionTealColor))
+            
+            Spacer(modifier = Modifier.weight(1f))
+            if(isLoading) CircularProgressIndicator()
+            else Button(onClick = { onSave(fare.toDouble()) }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) {
+                Text("Complete Setup")
+            }
+            Spacer(modifier = Modifier.height(32.dp))
+        }
+    }
+}
 
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
@@ -1368,362 +1550,25 @@ fun DeliveryDelayScreen(
     onProfileClick: () -> Unit = {},
     currentTab: DriverDestination = DriverDashboard()
 ) {
-    val backgroundGradient = remember {
-        Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
-    }
-
-    var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
-    var currentMonth by remember { mutableStateOf(YearMonth.now()) }
     var reason by remember { mutableStateOf("") }
-    var selectedHour by remember { mutableStateOf(7) }
-    var isAm by remember { mutableStateOf(true) }
+    var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
 
-    Scaffold(
-        bottomBar = {
-            DashboardBottomBar(
-                currentTab = currentTab,
-                onHomeClick = onHomeClick,
-                onOrdersClick = onOrdersClick,
-                onHistoryClick = onHistoryClick,
-                onChatClick = onChatClick,
-                onProfileClick = onProfileClick
-            )
-        },
-        containerColor = Color.Transparent
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(backgroundGradient)
-                .padding(innerPadding)
-                .padding(horizontal = 28.dp)
-                .padding(top = 48.dp)
-                .verticalScroll(rememberScrollState())
-        ) {
-            AppHeading("Delivery Delay")
-            AddSpace(20)
-
-            // Time picker card
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                color = Color.White,
-                shadowElevation = 2.dp
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable { onBack() }.fillMaxWidth()
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = textThemeColor,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Expected Delivery Time", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = textThemeColor)
-                    }
-
-                    AddSpace(20)
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        // Hour display
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFFF3E5F5)
-                        ) {
-                            Text(
-                                text = "%02d".format(selectedHour),
-                                fontSize = 48.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF6A0DAD),
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                            )
-                        }
-
-                        Text(" : ", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = textThemeColor)
-
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFFF3E5F5)
-                        ) {
-                            Text(
-                                text = "00",
-                                fontSize = 48.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF6A0DAD),
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        // AM/PM
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (isAm) Color(0xFFF3E5F5) else Color.LightGray.copy(alpha = 0.3f),
-                                modifier = Modifier.clickable { isAm = true }
-                            ) {
-                                Text("AM", modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                    fontWeight = FontWeight.Bold, color = if (isAm) Color(0xFF6A0DAD) else Color.Gray)
-                            }
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (!isAm) Color(0xFFF3E5F5) else Color.LightGray.copy(alpha = 0.3f),
-                                modifier = Modifier.clickable { isAm = false }
-                            ) {
-                                Text("PM", modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                    fontWeight = FontWeight.Bold, color = if (!isAm) Color(0xFF6A0DAD) else Color.Gray)
-                            }
-                        }
-                    }
-                }
+    Scaffold(bottomBar = { DashboardBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) }, containerColor = backgroundColor) { innerPadding ->
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp).verticalScroll(rememberScrollState())) {
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("Report Delay", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            GlassCard {
+                TextField(value = reason, onValueChange = { reason = it }, placeholder = { Text("Reason for delay") }, modifier = Modifier.fillMaxWidth())
             }
-
-            AddSpace(20)
-
-            // Date picker
-            AppSectionHeader("Expected Delivery Date")
-            AddSpace(12)
-
-            CalendarView(
-                currentMonth = currentMonth,
-                selectedDate = selectedDate,
-                onDateSelected = { selectedDate = it },
-                onMonthChanged = { currentMonth = it }
-            )
-
-            AddSpace(20)
-
-            // Reason input
-            Surface(
-                modifier = Modifier.fillMaxWidth().height(100.dp),
-                shape = RoundedCornerShape(12.dp),
-                color = Color.LightGray.copy(alpha = 0.3f)
-            ) {
-                TextField(
-                    value = reason,
-                    onValueChange = { reason = it },
-                    placeholder = { Text("Reason", color = Color.Gray) },
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent
-                    ),
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-
-            AddSpace(24)
-
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                AppButton(
-                    text = "Confirm delay",
-                    onClick = { onConfirmDelay(selectedDate, reason, selectedHour, isAm) },
-                    width = 220.dp
-                )
-            }
-
-            AddSpace(24)
-        }
-    }
-}
-
-
-// ─────────────────────────────────────────────
-// CHAT SCREEN
-// ─────────────────────────────────────────────
-
-data class ChatMessage(
-    val content: String,
-    val isSentByMe: Boolean,
-    val timestamp: String? = null
-)
-
-@Composable
-fun ChatScreen(
-    contactName: String = "Kamran",
-    contactStatus: String = "Active 11m ago",
-    contactImageUrl: String? = null,
-    messages: List<ChatMessage> = listOf(
-        ChatMessage("I will be there in 2 hours", isSentByMe = true, timestamp = "Oct 07, 2025, 9:41 AM"),
-        ChatMessage("ok", isSentByMe = false),
-        ChatMessage("drop at the location", isSentByMe = false),
-        ChatMessage("i will send someone to unload", isSentByMe = false)
-    ),
-    onBack: () -> Unit = {},
-    onCallClick: () -> Unit = {},
-    onSendMessage: (String) -> Unit = {}
-) {
-    val backgroundGradient = remember {
-        Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
-    }
-
-    var messageText by remember { mutableStateOf("") }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(backgroundGradient)
-            .imePadding()
-    ) {
-        // Header
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(backgroundGradient)
-                .padding(horizontal = 16.dp)
-                .padding(top = 48.dp, bottom = 12.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = textThemeColor
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    ProfileIcon(imageUrl = contactImageUrl, onClick = {})
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text(contactName, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = textThemeColor)
-                        Text(contactStatus, fontSize = 12.sp, color = Color.Gray)
-                    }
-                }
-                IconButton(onClick = onCallClick) {
-                    Icon(imageVector = Icons.Default.Call, contentDescription = "Call", tint = textThemeColor)
-                }
-            }
-        }
-
-        HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f))
-
-        // Messages
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            messages.forEach { message ->
-                if (message.timestamp != null) {
-                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        Text(message.timestamp, fontSize = 11.sp, color = Color.Gray)
-                    }
-                    AddSpace(4)
-                }
-                ChatBubble(message = message)
-            }
-        }
-
-        // Input bar
-        HorizontalDivider(color = Color.LightGray.copy(alpha = 0.4f))
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color.White)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TextField(
-                value = messageText,
-                onValueChange = { messageText = it },
-                placeholder = { Text("Message...", color = Color.Gray, fontSize = 14.sp) },
-                modifier = Modifier.weight(1f),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent
-                ),
-                singleLine = true
-            )
-            IconButton(onClick = { }) {
-                Icon(imageVector = Icons.Default.Mic, contentDescription = "Voice", tint = Color.Gray)
-            }
-            IconButton(onClick = { }) {
-                Icon(imageVector = Icons.Default.SentimentSatisfied, contentDescription = "Emoji", tint = Color.Gray)
-            }
-            IconButton(onClick = {
-                if (messageText.isNotBlank()) {
-                    onSendMessage(messageText)
-                    messageText = ""
-                }
-            }) {
-                Icon(imageVector = Icons.Default.Image, contentDescription = "Attach", tint = Color.Gray)
+            Spacer(modifier = Modifier.height(24.dp))
+            CalendarView(currentMonth = YearMonth.now(), selectedDate = selectedDate, onDateSelected = { selectedDate = it }, onMonthChanged = {})
+            
+            Spacer(modifier = Modifier.height(32.dp))
+            Button(onClick = { onConfirmDelay(selectedDate, reason, 12, true) }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) {
+                Text("Confirm Delay")
             }
         }
     }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun PreviewDashboardShipmentsScreen() {
-    DashboardShipmentsScreen()
-}
-
-@Preview(showBackground = true)
-@Composable
-fun PreviewShipmentRequestsScreen() {
-    ShipmentRequestsScreen()
-}
-
-@Preview(showBackground = true)
-@Composable
-fun PreviewShipmentRequestDetailScreen() {
-    ShipmentRequestDetailScreen()
-}
-
-@Preview(showBackground = true)
-@Composable
-fun PreviewCustomersScreen() {
-    CustomersScreen()
-}
-
-@Preview(showBackground = true)
-@Composable
-fun PreviewCustomerShipmentsDetailScreen() {
-    CustomerShipmentsDetailScreen()
-}
-
-@Preview(showBackground = true)
-@Composable
-fun PreviewActivityScreen() {
-    ActivityScreen()
-}
-
-@Preview(showBackground = true)
-@Composable
-fun PreviewProfileScreen() {
-    ProfileScreen()
-}
-
-@RequiresApi(Build.VERSION_CODES.O)
-@Preview(showBackground = true)
-@Composable
-fun PreviewDeliveryDelayScreen() {
-    DeliveryDelayScreen()
-}
-
-@Preview(showBackground = true)
-@Composable
-fun PreviewChatScreen() {
-    ChatScreen()
 }

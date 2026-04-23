@@ -9,9 +9,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.cargoconnectapp.data.RetrofitClient
 import com.example.cargoconnectapp.ui.models.datamodels.CreateRouteRequest
+import com.example.cargoconnectapp.ui.models.datamodels.DriverRequestsResponse
 import com.example.cargoconnectapp.ui.models.datamodels.RouteData
 import com.example.cargoconnectapp.ui.models.helpermodels.Dimensions
 import kotlinx.coroutines.launch
+import org.osmdroid.util.GeoPoint
+import java.time.LocalDate
 
 class DriverViewModel : ViewModel() {
 
@@ -45,6 +48,25 @@ class DriverViewModel : ViewModel() {
         private set
     var errorMessage by mutableStateOf<String?>(null)
         private set
+
+    var driverRequests by mutableStateOf<DriverRequestsResponse?>(null)
+        private set
+
+    // ── Route Planning State (Temporary) ──────────────────────────────────────
+    
+    val plannedPoints = mutableStateListOf<GeoPoint>()
+    var plannedDepartureDate by mutableStateOf<LocalDate?>(null)
+    var plannedArrivalDate by mutableStateOf<LocalDate?>(null)
+    
+    // Stores a route template if we are activating an existing one
+    var selectedTemplateRoute by mutableStateOf<RouteData?>(null)
+
+    fun clearPlannedRoute() {
+        plannedPoints.clear()
+        plannedDepartureDate = null
+        plannedArrivalDate = null
+        selectedTemplateRoute = null
+    }
 
     // ── Fetch functions ───────────────────────────────────────────────────────
 
@@ -88,9 +110,10 @@ class DriverViewModel : ViewModel() {
                 val response = RetrofitClient.instance.getRoutes(driverId)
                 if (response.isSuccessful) {
                     val all = response.body() ?: emptyList()
+                    // Filter and take 4 most recent
                     pastRoutes = all.filter {
                         it.isActive != true && it.isNextRoute != true
-                    }
+                    }.sortedByDescending { it.routeId }.take(4)
                 } else errorMessage = response.errorBody()?.string()
             } catch (e: Exception) {
                 errorMessage = e.message
@@ -100,14 +123,17 @@ class DriverViewModel : ViewModel() {
         }
     }
 
-    fun saveRoute(request: CreateRouteRequest, driverId: Int) {
+    fun saveRoute(request: CreateRouteRequest, driverId: Int, onComplete: () -> Unit = {}) {
         viewModelScope.launch {
             isLoading = true
             try {
                 val response = RetrofitClient.instance.saveRoute(request)
                 if (response.isSuccessful) {
+                    clearPlannedRoute()
                     fetchActiveRoute(driverId)
                     fetchNextRoute(driverId)
+                    fetchAllRoutes(driverId)
+                    onComplete()
                 } else errorMessage = response.errorBody()?.string()
             } catch (e: Exception) {
                 errorMessage = e.message
@@ -132,6 +158,22 @@ class DriverViewModel : ViewModel() {
         }
     }
 
+    fun scheduleNextRoute(routeId: Int, driverId: Int) {
+        viewModelScope.launch {
+            isLoading = true
+            try {
+                val response = RetrofitClient.instance.scheduleNextRoute(routeId)
+                if (response.isSuccessful) {
+                    fetchNextRoute(driverId)
+                } else errorMessage = response.errorBody()?.string()
+            } catch (e: Exception) {
+                errorMessage = e.message
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
     fun deleteRoute(routeId: Int, driverId: Int) {
         viewModelScope.launch {
             isLoading = true
@@ -139,6 +181,24 @@ class DriverViewModel : ViewModel() {
                 val response = RetrofitClient.instance.deleteRoute(routeId)
                 if (response.isSuccessful) fetchAllRoutes(driverId)
                 else errorMessage = response.errorBody()?.string()
+            } catch (e: Exception) {
+                errorMessage = e.message
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    fun fetchDriverRequests(driverId: Int) {
+        viewModelScope.launch {
+            isLoading = true
+            try {
+                val response = RetrofitClient.instance.getDriverRequests(driverId)
+                if (response.isSuccessful) {
+                    driverRequests = response.body()
+                } else {
+                    errorMessage = response.errorBody()?.string()
+                }
             } catch (e: Exception) {
                 errorMessage = e.message
             } finally {

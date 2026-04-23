@@ -1,23 +1,9 @@
 package com.example.cargoconnectapp.data
 
-import com.example.cargoconnectapp.ui.models.datamodels.AuthResponse
-import com.example.cargoconnectapp.ui.models.datamodels.CreateRouteRequest
-import com.example.cargoconnectapp.ui.models.datamodels.LoginRequest
-import com.example.cargoconnectapp.ui.models.datamodels.RegisterRequest
-import com.example.cargoconnectapp.ui.models.datamodels.RouteData
-import com.example.cargoconnectapp.ui.models.datamodels.SaveRouteResponse
-import com.example.cargoconnectapp.ui.models.datamodels.UploadResponse
-import com.example.cargoconnectapp.ui.models.datamodels.UserDataRequest
-import com.example.cargoconnectapp.ui.models.datamodels.UserDataResponse
+import com.example.cargoconnectapp.ui.models.datamodels.*
 import okhttp3.MultipartBody
 import retrofit2.Response
-import retrofit2.http.Body
-import retrofit2.http.DELETE
-import retrofit2.http.GET
-import retrofit2.http.Multipart
-import retrofit2.http.POST
-import retrofit2.http.Part
-import retrofit2.http.Path
+import retrofit2.http.*
 
 interface ApiInterface {
     @POST("api/auth/login")
@@ -51,4 +37,20 @@ interface ApiInterface {
 
     @DELETE("api/driver/delete-route/{routeId}")
     suspend fun deleteRoute(@Path("routeId") routeId: Int): Response<String>
+
+    //Driver Requests
+    @GET("api/drivers/{id}/requests")
+    suspend fun getDriverRequests(
+        @Path("id") driverId: Int
+    ): Response<DriverRequestsResponse>
+
+    // ── Shipments ─────────────────────────────────────────────────────────────
+    @POST("api/shipments/draft/{customerId}")
+    suspend fun createOrGetDraft(@Path("customerId") customerId: Int): Response<CreateShipmentResponse>
+
+    @POST("api/shipments/add/package")
+    suspend fun addPackage(@Body request: PackageWithAttributesRequest): Response<Unit>
+
+    @POST("api/shipments/complete")
+    suspend fun completeShipment(@Body request: CompleteShipmentRequest): Response<Unit>
 }

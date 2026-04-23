@@ -44,6 +44,7 @@ enum class DriverProfilePage {
     YourInformation,
     EditInformation,
     ActivateRoute,
+    SelectRoute,
     AddNewRoute,
     EstimatedDelivery
 }
