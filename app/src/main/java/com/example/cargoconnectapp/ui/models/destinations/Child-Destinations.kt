@@ -72,6 +72,7 @@ enum class CustomerNewShipmentPage {
 enum class CustomerBookingPage {
     Active,
     Completed,
+    Pending,
     Details,
     CancelBooking
 }

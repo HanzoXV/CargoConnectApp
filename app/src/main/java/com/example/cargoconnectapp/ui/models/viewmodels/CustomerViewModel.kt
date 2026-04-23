@@ -1,6 +1,8 @@
 package com.example.cargoconnectapp.ui.models.viewmodels
 
+import android.os.Build
 import android.util.Log
+import androidx.annotation.RequiresApi
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -23,6 +25,13 @@ class CustomerViewModel : ViewModel() {
     var confirmedCount by mutableStateOf(0)
     var inTransitCount by mutableStateOf(0)
     var deliveredCount by mutableStateOf(0)
+
+    // Bookings State
+    var customerBookings = mutableStateListOf<BookingDto>()
+    var pendingShipments = mutableStateListOf<ShipmentDto>()
+    
+    // Selection for Details
+    var selectedBooking by mutableStateOf<CustomerBooking?>(null)
 
     // --- NEW SHIPMENT FLOW STATE ---
     
@@ -77,20 +86,73 @@ class CustomerViewModel : ViewModel() {
         }
     }
 
+    fun fetchCustomerBookings(customerId: Int) {
+        viewModelScope.launch {
+            isLoading = true
+            try {
+                val response = RetrofitClient.instance.getCustomerBookings(customerId)
+                if (response.isSuccessful) {
+                    customerBookings.clear()
+                    response.body()?.let { bookings ->
+                        customerBookings.addAll(bookings)
+                        
+                        // Update Dashboard Stats
+                        totalBookings = bookings.size
+                        confirmedCount = bookings.count { it.status.lowercase() == "confirmed" }
+                        inTransitCount = bookings.count { it.status.lowercase() == "intransit" || it.status.lowercase() == "moving" }
+                        deliveredCount = bookings.count { it.status.lowercase() == "delivered" || it.status.lowercase() == "completed" }
+                    }
+                    Log.d("CustomerViewModel", "Fetched ${customerBookings.size} bookings")
+                } else {
+                    Log.e("CustomerViewModel", "Failed to fetch bookings: ${response.errorBody()?.string()}")
+                }
+            } catch (e: Exception) {
+                Log.e("CustomerViewModel", "Exception fetching bookings", e)
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    fun fetchPendingShipments(customerId: Int) {
+        viewModelScope.launch {
+            isLoading = true
+            try {
+                val response = RetrofitClient.instance.getPendingShipments(customerId)
+                if (response.isSuccessful) {
+                    pendingShipments.clear()
+                    response.body()?.let { pendingShipments.addAll(it) }
+                    Log.d("CustomerViewModel", "Fetched ${pendingShipments.size} pending shipments")
+                } else {
+                    Log.e("CustomerViewModel", "Failed to fetch pending shipments: ${response.errorBody()?.string()}")
+                }
+            } catch (e: Exception) {
+                Log.e("CustomerViewModel", "Exception fetching pending shipments", e)
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
     // ── Local Management (No API) ─────────────────────────────────────────────
     fun addPackageLocally() {
+        Log.d("CustomerViewModel", "Adding package locally: $packageName")
         val newPkg = Package(
             name = packageName,
             dimensions = "${packageLength}x${packageWidth}x${packageHeight}",
             weight = packageWeight,
             quantity = packageQuantity.toIntOrNull() ?: 1,
-            fragile = isFragile
+            fragile = isFragile,
+            flammable = isFlammable,
+            liquid = isLiquid,
+            keepUpright = isKeepUpright
         )
         addedPackages.add(newPkg)
         clearPackageForm()
     }
 
     fun removePackage(pkg: Package) {
+        Log.d("CustomerViewModel", "Removing package locally: ${pkg.name}")
         addedPackages.remove(pkg)
     }
 
@@ -108,11 +170,13 @@ class CustomerViewModel : ViewModel() {
     }
 
     // ── API Spot 2: Sync and Complete ────────────────────────────────────────
+    @RequiresApi(Build.VERSION_CODES.O)
     fun finalizeShipment(onSuccess: () -> Unit, onError: (String) -> Unit) {
         val shipmentId = assignedShipmentId ?: return
         
         viewModelScope.launch {
             isLoading = true
+            Log.d("CustomerViewModel", "Starting finalizeShipment for ID: $shipmentId")
             try {
                 // 1. Add all packages to the shipment
                 for (pkg in addedPackages) {
@@ -131,9 +195,9 @@ class CustomerViewModel : ViewModel() {
                     
                     val attributeIds = mutableListOf<Int>()
                     if (pkg.fragile) attributeIds.add(PackageAttributes.FRAGILE)
-                    if (isFlammable) attributeIds.add(PackageAttributes.FLAMMABLE)
-                    if (isLiquid) attributeIds.add(PackageAttributes.LIQUID)
-                    if (isKeepUpright) attributeIds.add(PackageAttributes.KEEP_UPRIGHT)
+                    if (pkg.flammable) attributeIds.add(PackageAttributes.FLAMMABLE)
+                    if (pkg.liquid) attributeIds.add(PackageAttributes.LIQUID)
+                    if (pkg.keepUpright) attributeIds.add(PackageAttributes.KEEP_UPRIGHT)
                     
                     val request = PackageWithAttributesRequest(packageItem, attributeIds)
                     RetrofitClient.instance.addPackage(request)

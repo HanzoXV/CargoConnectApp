@@ -53,4 +53,15 @@ interface ApiInterface {
 
     @POST("api/shipments/complete")
     suspend fun completeShipment(@Body request: CompleteShipmentRequest): Response<Unit>
+
+    @GET("api/shipments/pending/customer/{customerId}")
+    suspend fun getPendingShipments(
+        @Path("customerId") customerId: Int
+    ): Response<List<ShipmentDto>>
+
+    @GET("api/customers/{customerId}/bookings")
+    suspend fun getCustomerBookings(
+        @Path("customerId") customerId: Int
+    ): Response<List<BookingDto>>
+
 }

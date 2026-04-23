@@ -136,3 +136,20 @@ data class CompleteShipmentRequest(
     val instructionsMessage: String?,
     val booking_date: String
 )
+data class ShipmentDto(
+    @SerializedName("shipment_id") val shipmentId: Int,
+    @SerializedName("pickup_address") val pickupAddress: String,
+    @SerializedName("delivery_address") val deliveryAddress: String,
+    @SerializedName("status") val status: String,
+    @SerializedName("sender_name") val senderName: String,
+    @SerializedName("sender_contact") val senderContact: String,
+    @SerializedName("total_weight") val totalWeight: Double
+)
+data class BookingDto(
+    val id: Int,
+    val status: String,
+    val amount: Double,
+    @SerializedName("bookingType") val bookingType: String,
+    val fromCheckpoint: String?, // Nullable because fromCp can be null
+    val toCheckpoint: String?    // Nullable because toCp can be null
+)

@@ -1,12 +1,15 @@
 package com.example.cargoconnectapp.ui.navigation.screens.graphs
 
 import android.os.Build
+import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.LaunchedEffect
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
+import com.example.cargoconnectapp.ui.models.datamodels.BookingStatus
+import com.example.cargoconnectapp.ui.models.datamodels.CustomerBooking
 import com.example.cargoconnectapp.ui.models.destinations.*
 import com.example.cargoconnectapp.ui.models.viewmodels.AuthViewModel
 import com.example.cargoconnectapp.ui.models.viewmodels.CustomerViewModel
@@ -46,13 +49,30 @@ fun NavGraphBuilder.customerGraph(
         
         LaunchedEffect(Unit) {
             customerViewModel.createOrGetDraft(session.roleBasedId)
+            customerViewModel.fetchCustomerBookings(session.roleBasedId)
         }
 
         when (page) {
             CustomerDashboardPage.Summary,
             CustomerDashboardPage.Details -> {
+                // Map real bookings for the dashboard list
+                val activeBookings = customerViewModel.customerBookings
+                    .filter { it.status.lowercase() !in listOf("completed", "delivered", "closed", "pending") }
+                    .map { dto ->
+                        CustomerBooking(
+                            title = "Booking #${dto.id}",
+                            route = dto.fromCheckpoint?.let { "$it to ${dto.toCheckpoint ?: "N/A"}" } ?: "Route N/A",
+                            amount = "Rs ${dto.amount}",
+                            status = when(dto.status.lowercase()) {
+                                "intransit", "moving" -> BookingStatus.InTransit
+                                else -> BookingStatus.Confirmed
+                            }
+                        )
+                    }
+
                 CustomerDashboardScreen(
                     customerViewModel    = customerViewModel,
+                    bookings             = activeBookings,
                     currentTab           = args.tab,
                     onHomeClick          = args.onHomeClick,
                     onOrdersClick        = args.onOrdersClick,
@@ -118,11 +138,11 @@ fun NavGraphBuilder.customerGraph(
                     customerViewModel = customerViewModel,
                     currentTab = args.tab,
                     onBookNow = { navController.navigate(CustomerNewShipment(CustomerNewShipmentPage.RecipientDetails)) },
-                    onHomeClick    = { args.onHomeClick() },
-                    onOrdersClick  = { args.onOrdersClick() },
-                    onHistoryClick = { args.onHistoryClick() },
-                    onChatClick    = { args.onChatClick() },
-                    onProfileClick = { args.onProfileClick() }
+                    onHomeClick    = args.onHomeClick,
+                    onOrdersClick  = args.onOrdersClick,
+                    onHistoryClick = args.onHistoryClick,
+                    onChatClick    = args.onChatClick,
+                    onProfileClick = args.onProfileClick
                 )
             }
             CustomerNewShipmentPage.RecipientDetails -> {
@@ -130,7 +150,18 @@ fun NavGraphBuilder.customerGraph(
                     customerViewModel = customerViewModel,
                     currentTab     = args.tab,
                     onBack         = { navController.popBackStack() },
-                    onNext = { navController.navigate(CustomerNewShipment(CustomerNewShipmentPage.FindingTruck)) },
+                    onNext = { 
+                        Log.d("CustomerGraph", "Finalizing shipment...")
+                        customerViewModel.finalizeShipment(
+                            onSuccess = {
+                                Log.d("CustomerGraph", "Shipment finalized! Moving to finding truck.")
+                                navController.navigate(CustomerNewShipment(CustomerNewShipmentPage.FindingTruck))
+                            },
+                            onError = { error ->
+                                Log.e("CustomerGraph", "Finalization failed: $error")
+                            }
+                        )
+                    },
                     onHomeClick    = args.onHomeClick,
                     onOrdersClick  = args.onOrdersClick,
                     onHistoryClick = args.onHistoryClick,
@@ -148,13 +179,11 @@ fun NavGraphBuilder.customerGraph(
                     onProfileClick = args.onProfileClick
                 )
             }
-            CustomerNewShipmentPage.AvailableTrucks -> {
-                // Removed available trucks screen logic
-            }
+            CustomerNewShipmentPage.AvailableTrucks -> { }
             CustomerNewShipmentPage.TruckDetails -> {
                 DriverFoundScreen(
                     currentTab       = args.tab,
-                    onViewDetails    = { /* Navigate to driver profile */ },
+                    onViewDetails    = { },
                     onContactDriver  = { navController.navigate(CustomerChat(CustomerChatPage.Details)) },
                     onHomeClick      = args.onHomeClick,
                     onOrdersClick    = args.onOrdersClick,
@@ -170,9 +199,48 @@ fun NavGraphBuilder.customerGraph(
     composable<CustomerBookings> {
         val page = it.toRoute<CustomerBookings>().page
         val args = sharedArgs()
+        
+        LaunchedEffect(Unit) {
+            customerViewModel.fetchCustomerBookings(session.roleBasedId)
+            customerViewModel.fetchPendingShipments(session.roleBasedId)
+        }
+
         when (page) {
             CustomerBookingPage.Active,
+            CustomerBookingPage.Pending,
             CustomerBookingPage.Completed -> {
+                
+                val activeList = customerViewModel.customerBookings
+                    .filter { it.status.lowercase() in listOf("confirmed", "intransit", "moving") }
+                    .map { dto ->
+                        CustomerBooking(
+                            title = "Booking #${dto.id}",
+                            route = dto.fromCheckpoint?.let { "$it to ${dto.toCheckpoint ?: "N/A"}" } ?: "Route N/A",
+                            amount = "Rs ${dto.amount}",
+                            status = if (dto.status.lowercase() == "confirmed") BookingStatus.Confirmed else BookingStatus.InTransit
+                        )
+                    }
+
+                val pendingList = customerViewModel.pendingShipments.map { dto ->
+                    CustomerBooking(
+                        title = "Shipment #${dto.shipmentId}",
+                        route = "${dto.pickupAddress} to ${dto.deliveryAddress}",
+                        amount = "",
+                        status = BookingStatus.Confirmed 
+                    )
+                }
+
+                val completedList = customerViewModel.customerBookings
+                    .filter { it.status.lowercase() in listOf("completed", "delivered", "closed") }
+                    .map { dto ->
+                        CustomerBooking(
+                            title = "Booking #${dto.id}",
+                            route = dto.fromCheckpoint?.let { "$it to ${dto.toCheckpoint ?: "N/A"}" } ?: "Route N/A",
+                            amount = "Rs ${dto.amount}",
+                            status = BookingStatus.Completed
+                        )
+                    }
+
                 YourBookingsScreen(
                     currentTab           = args.tab,
                     onHomeClick          = args.onHomeClick,
@@ -180,7 +248,10 @@ fun NavGraphBuilder.customerGraph(
                     onHistoryClick       = args.onHistoryClick,
                     onChatClick          = args.onChatClick,
                     onProfileClick       = args.onProfileClick,
-                    onDetailsClick       = { /* navController.navigate(CustomerBookings(CustomerBookingPage.Details)) */ },
+                    activeBookings       = activeList,
+                    pendingBookings      = pendingList,
+                    completedBookings    = completedList,
+                    onDetailsClick       = { navController.navigate(CustomerBookings(CustomerBookingPage.Details)) },
                     onContactDriverClick = { navController.navigate(CustomerChat(CustomerChatPage.Details)) },
                     onTrackClick         = { navController.navigate(CustomerDashboard(CustomerDashboardPage.Tracking)) },
                     onCancelClick        = { navController.navigate(CustomerBookings(CustomerBookingPage.CancelBooking)) },
@@ -188,7 +259,15 @@ fun NavGraphBuilder.customerGraph(
                 )
             }
             CustomerBookingPage.Details -> {
-                // Booking Details Screen placeholder
+                BookingShipmentsDetailScreen(
+                    currentTab     = args.tab,
+                    onBack         = { navController.popBackStack() },
+                    onHomeClick    = args.onHomeClick,
+                    onOrdersClick  = args.onOrdersClick,
+                    onHistoryClick = args.onHistoryClick,
+                    onChatClick    = args.onChatClick,
+                    onProfileClick = args.onProfileClick
+                )
             }
             CustomerBookingPage.CancelBooking -> {
                 CancelBookingScreen(
@@ -224,7 +303,10 @@ fun NavGraphBuilder.customerGraph(
                 )
             }
             CustomerChatPage.Details -> {
-                // Individual Chat Screen placeholder
+                ChatScreen(
+                    onBack      = { navController.popBackStack() },
+                    onCallClick = {}
+                )
             }
         }
     }
@@ -243,14 +325,12 @@ fun NavGraphBuilder.customerGraph(
                     onChatClick            = { navController.navigateTab(CustomerChat()) },
                     onProfileClick         = { navController.navigateTab(CustomerProfile()) },
                     onBookingDetailsClick  = { navController.navigate(CustomerBookings()) },
-                    onYourInformationClick = { /* navController.navigate(CustomerProfile(CustomerProfilePage.YourInformation)) */ },
+                    onYourInformationClick = { },
                     onLogoutClick          = { authViewModel.logout() }
                 )
             }
             CustomerProfilePage.YourInformation,
-            CustomerProfilePage.EditInformation -> {
-                // Placeholder
-            }
+            CustomerProfilePage.EditInformation -> { }
         }
     }
 }

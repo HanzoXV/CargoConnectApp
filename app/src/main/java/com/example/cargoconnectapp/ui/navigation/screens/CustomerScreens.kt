@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -32,7 +33,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.os.Build
 import androidx.annotation.RequiresApi
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import coil.compose.AsyncImage
 import com.example.cargoconnectapp.ui.models.datamodels.*
@@ -54,6 +54,7 @@ import org.osmdroid.util.GeoPoint
 @Composable
 fun CustomerDashboardScreen(
     customerViewModel: CustomerViewModel,
+    bookings: List<CustomerBooking> = emptyList(),
     onNewBookingClick: () -> Unit = {},
     onDetailsClick: (CustomerBooking) -> Unit = {},
     onContactDriverClick: (CustomerBooking) -> Unit = {},
@@ -67,13 +68,6 @@ fun CustomerDashboardScreen(
     currentTab: CustomerDestination = CustomerDashboard()
 ) {
     val backgroundGradient = Brush.verticalGradient(listOf(backgroundColor, Color.White))
-    
-    // Mock bookings
-    val bookings = listOf(
-        CustomerBooking("Electronics", "Karachi to Multan", "PKR 8,500", BookingStatus.InTransit),
-        CustomerBooking("Chemical", "Karachi to Multan", "PKR 8,500", BookingStatus.Confirmed)
-    )
-
     val total = customerViewModel.confirmedCount + customerViewModel.inTransitCount + customerViewModel.deliveredCount
 
     Scaffold(
@@ -162,15 +156,19 @@ fun CustomerDashboardScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            bookings.forEach { booking ->
-                CustomerBookingCardOverhauled(
-                    booking = booking,
-                    onDetails = { onDetailsClick(booking) },
-                    onContact = { onContactDriverClick(booking) },
-                    onTrack = { onTrackClick(booking) },
-                    onCancel = { onCancelClick(booking) }
-                )
-                Spacer(modifier = Modifier.height(12.dp))
+            if (bookings.isEmpty()) {
+                Text("No active bookings found.", color = Color.Gray, modifier = Modifier.padding(vertical = 12.dp))
+            } else {
+                bookings.forEach { booking ->
+                    CustomerBookingCardOverhauled(
+                        booking = booking,
+                        onDetails = { onDetailsClick(booking) },
+                        onContact = { onContactDriverClick(booking) },
+                        onTrack = { onTrackClick(booking) },
+                        onCancel = { onCancelClick(booking) }
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -612,6 +610,7 @@ fun DriverFoundScreen(
 fun YourBookingsScreen(
     activeBookings: List<CustomerBooking> = emptyList(),
     completedBookings: List<CustomerBooking> = emptyList(),
+    pendingBookings: List<CustomerBooking> = emptyList(),
     onDetailsClick: (CustomerBooking) -> Unit = {},
     onContactDriverClick: (CustomerBooking) -> Unit = {},
     onTrackClick: (CustomerBooking) -> Unit = {},
@@ -630,13 +629,13 @@ fun YourBookingsScreen(
             Spacer(modifier = Modifier.height(32.dp))
             Text("Your Shipments", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
             Spacer(modifier = Modifier.height(24.dp))
-            InteractiveTabRow(tabs = listOf("Active", "Completed"), selectedTab = selectedTab, onTabSelected = { selectedTab = it })
+            InteractiveTabRow(tabs = listOf("Active", "Pending", "Completed"), selectedTab = selectedTab, onTabSelected = { selectedTab = it })
             Spacer(modifier = Modifier.height(24.dp))
             LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(bottom = 32.dp)) {
-                if (selectedTab == "Active") {
-                    items(activeBookings) { booking -> CustomerBookingCardOverhauled(booking, onDetails = { onDetailsClick(booking) }, onContact = { onContactDriverClick(booking) }, onTrack = { onTrackClick(booking) }, onCancel = { onCancelClick(booking) }) }
-                } else {
-                    items(completedBookings) { booking -> CompletedBookingCardOverhauled(booking, onDetails = { onDetailsClick(booking) }, onReview = { onReviewClick(booking) }) }
+                when (selectedTab) {
+                    "Active" -> { items(activeBookings) { booking -> CustomerBookingCardOverhauled(booking, onDetails = { onDetailsClick(booking) }, onContact = { onContactDriverClick(booking) }, onTrack = { onTrackClick(booking) }, onCancel = { onCancelClick(booking) }) } }
+                    "Pending" -> { items(pendingBookings) { booking -> CustomerBookingCardOverhauled(booking, onDetails = { onDetailsClick(booking) }, onContact = { onContactDriverClick(booking) }, onTrack = { onTrackClick(booking) }, onCancel = { onCancelClick(booking) }) } }
+                    "Completed" -> { items(completedBookings) { booking -> CompletedBookingCardOverhauled(booking, onDetails = { onDetailsClick(booking) }, onReview = { onReviewClick(booking) }) } }
                 }
             }
         }
@@ -731,6 +730,50 @@ fun CancelBookingScreen(
             Button(onClick = onGetInContact, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = actionTealColor.copy(alpha = 0.1f), contentColor = actionTealColor)) { Text("Contact Driver") }
             Spacer(modifier = Modifier.height(12.dp))
             Button(onClick = { onConfirmCancel(reason) }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = statusRedColor)) { Text("Confirm Cancellation") }
+        }
+    }
+}
+
+@Composable
+fun BookingShipmentsDetailScreen(
+    shipments: List<ShipmentDetail> = emptyList(),
+    pickupAddress: String = "Karachi",
+    deliveryAddress: String = "Lahore",
+    totalWeight: String = "500kg",
+    pickupDate: String = "Sep 12",
+    onBack: () -> Unit = {},
+    onHomeClick: () -> Unit = {},
+    onOrdersClick: () -> Unit = {},
+    onHistoryClick: () -> Unit = {},
+    onChatClick: () -> Unit = {},
+    onProfileClick: () -> Unit = {},
+    currentTab: CustomerDestination = CustomerDashboard()
+) {
+    Scaffold(bottomBar = { CustomerBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) }, containerColor = backgroundColor) { innerPadding ->
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp).verticalScroll(rememberScrollState())) {
+            Spacer(modifier = Modifier.height(24.dp))
+            IconButton(onClick = onBack, modifier = Modifier.background(Color.White, CircleShape)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("Shipment Details", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            GlassCard {
+                DetailItem(Icons.Default.PinDrop, "From", pickupAddress)
+                DetailItem(Icons.Default.Flag, "To", deliveryAddress)
+                DetailItem(Icons.Default.Scale, "Weight", totalWeight)
+                DetailItem(Icons.Default.CalendarToday, "Date", pickupDate)
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Packages", fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
+            shipments.forEach { shipment ->
+                shipment.packages.forEach { pkg ->
+                    GlassCard(modifier = Modifier.padding(vertical = 4.dp)) {
+                        Text(pkg.name, fontWeight = FontWeight.Bold)
+                        Text("Qty: ${pkg.quantity} • ${pkg.dimensions}", fontSize = 12.sp, color = Color.Gray)
+                    }
+                }
+            }
         }
     }
 }
