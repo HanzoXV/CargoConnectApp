@@ -1,6 +1,7 @@
 package com.example.cargoconnectapp.ui.navigation.screens.graphs
 
 import android.os.Build
+import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavGraphBuilder
@@ -43,7 +44,8 @@ fun NavGraphBuilder.authGraph (navController: NavHostController,
                     authViewModel.errorMessage = "Email or password cannot be empty."
                 } else {
                     authViewModel.login {
-                        when (authViewModel.userRole) {
+                        Log.d("AUTH_DEBUG", "Role after login: ${session.userRole}")
+                        when (session.userRole) {
                             UserRoles.Driver -> navController.navigate(DriverDashboard(DriverDashboardPage.TripInfo)) {
                                 popUpTo(Splash) { inclusive = true }
                             }

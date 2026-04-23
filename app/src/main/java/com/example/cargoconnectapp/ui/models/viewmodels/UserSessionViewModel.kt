@@ -7,6 +7,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import com.example.cargoconnectapp.ui.models.datamodels.UserDataResponse
+import com.example.cargoconnectapp.ui.models.destinations.CustomerDashboard
+import com.example.cargoconnectapp.ui.models.destinations.CustomerDestination
+import com.example.cargoconnectapp.ui.models.destinations.DriverDashboard
+import com.example.cargoconnectapp.ui.models.destinations.DriverDestination
 import com.example.cargoconnectapp.ui.models.helpermodels.UserRoles
 
 class UserSessionViewModel : ViewModel() {
@@ -31,6 +35,19 @@ class UserSessionViewModel : ViewModel() {
     var activeRouteId by mutableIntStateOf(-1)
         private set
 
+    var currentDriverTab by mutableStateOf<DriverDestination>(DriverDashboard())
+        private set
+
+    var currentCustomerTab by mutableStateOf<CustomerDestination>(CustomerDashboard())
+        private set
+
+    fun setCustomerTab(destination: CustomerDestination) {
+        currentCustomerTab = destination
+    }
+    fun setDriverTab(destination: DriverDestination) {
+        currentDriverTab = destination
+    }
+
     fun updateSession(
         id: Int,
         email: String,
@@ -42,11 +59,10 @@ class UserSessionViewModel : ViewModel() {
         userRole = role
         userFullName = userData.fullName
         userContact = userData.contactNo
-        userLicenseNo = userData.licenseNo
-        userStreetAddress = userData.streetNo
-        userCity = userData.city
+        userLicenseNo = userData.licenseNo ?: ""
+        userStreetAddress = userData.streetNo ?: ""
+        userCity = userData.city ?: ""
         userProfileImageUrl = userData.profileImageUrl
-        activeRouteId = userData.activeRoute?.routeId ?: -1
     }
 
     fun clearSession() {

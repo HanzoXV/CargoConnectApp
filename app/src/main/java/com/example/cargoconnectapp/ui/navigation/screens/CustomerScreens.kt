@@ -31,6 +31,10 @@ import androidx.compose.ui.unit.sp
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.ui.tooling.preview.Preview
+import com.example.cargoconnectapp.ui.models.destinations.CustomerDashboard
+import com.example.cargoconnectapp.ui.models.destinations.CustomerDestination
+import com.example.cargoconnectapp.ui.models.destinations.DriverDashboard
+import com.example.cargoconnectapp.ui.models.destinations.DriverDestination
 import java.time.LocalDate
 import java.time.YearMonth
 import com.example.cargoconnectapp.ui.navigation.*
@@ -111,7 +115,8 @@ fun CustomerDashboardScreen(
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {}
+    onProfileClick: () -> Unit = {},
+    currentTab: CustomerDestination = CustomerDashboard()
 ) {
     val backgroundGradient = remember {
         Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
@@ -120,7 +125,8 @@ fun CustomerDashboardScreen(
 
     Scaffold(
         bottomBar = {
-            DashboardBottomBar(
+            CustomerBottomBar(
+                currentTab = currentTab,
                 onHomeClick = onHomeClick,
                 onOrdersClick = onOrdersClick,
                 onHistoryClick = onHistoryClick,
@@ -361,7 +367,8 @@ fun NewShipmentRouteScreen(
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {}
+    onProfileClick: () -> Unit = {},
+    currentTab: CustomerDestination = CustomerDashboard()
 ) {
     val backgroundGradient = remember {
         Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
@@ -375,7 +382,8 @@ fun NewShipmentRouteScreen(
 
     Scaffold(
         bottomBar = {
-            DashboardBottomBar(
+            CustomerBottomBar(
+                currentTab = currentTab,
                 onHomeClick = onHomeClick,
                 onOrdersClick = onOrdersClick,
                 onHistoryClick = onHistoryClick,
@@ -552,7 +560,8 @@ fun NewShipmentPackagesScreen(
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {}
+    onProfileClick: () -> Unit = {},
+    currentTab: CustomerDestination = CustomerDashboard()
 ) {
     val backgroundGradient = remember {
         Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
@@ -560,7 +569,8 @@ fun NewShipmentPackagesScreen(
 
     Scaffold(
         bottomBar = {
-            DashboardBottomBar(
+            CustomerBottomBar(
+                currentTab = currentTab,
                 onHomeClick = onHomeClick,
                 onOrdersClick = onOrdersClick,
                 onHistoryClick = onHistoryClick,
@@ -710,7 +720,8 @@ fun NewShipmentPackageDetailsScreen(
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {}
+    onProfileClick: () -> Unit = {},
+    currentTab: CustomerDestination = CustomerDashboard()
 ) {
     val backgroundGradient = remember {
         Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
@@ -729,7 +740,8 @@ fun NewShipmentPackageDetailsScreen(
 
     Scaffold(
         bottomBar = {
-            DashboardBottomBar(
+            CustomerBottomBar(
+                currentTab = currentTab,
                 onHomeClick = onHomeClick,
                 onOrdersClick = onOrdersClick,
                 onHistoryClick = onHistoryClick,
@@ -844,7 +856,8 @@ fun NewShipmentRecipientScreen(
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {}
+    onProfileClick: () -> Unit = {},
+    currentTab: CustomerDestination = CustomerDashboard()
 ) {
     val backgroundGradient = remember {
         Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
@@ -858,7 +871,8 @@ fun NewShipmentRecipientScreen(
 
     Scaffold(
         bottomBar = {
-            DashboardBottomBar(
+            CustomerBottomBar(
+                currentTab = currentTab,
                 onHomeClick = onHomeClick,
                 onOrdersClick = onOrdersClick,
                 onHistoryClick = onHistoryClick,
@@ -955,7 +969,8 @@ fun FindingTruckScreen(
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {}
+    onProfileClick: () -> Unit = {},
+    currentTab: CustomerDestination = CustomerDashboard()
 ) {
     val backgroundGradient = remember {
         Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
@@ -1017,7 +1032,8 @@ fun FindingTruckScreen(
 
         // Bottom nav overlay
         Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 0.dp)) {
-            DashboardBottomBar(
+            CustomerBottomBar(
+                currentTab = currentTab,
                 onHomeClick = onHomeClick,
                 onOrdersClick = onOrdersClick,
                 onHistoryClick = onHistoryClick,
@@ -1056,7 +1072,8 @@ fun AvailableTrucksScreen(
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {}
+    onProfileClick: () -> Unit = {},
+    currentTab: CustomerDestination = CustomerDashboard()
 ) {
     val backgroundGradient = remember {
         Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
@@ -1065,7 +1082,8 @@ fun AvailableTrucksScreen(
 
     Scaffold(
         bottomBar = {
-            DashboardBottomBar(
+            CustomerBottomBar(
+                currentTab = currentTab,
                 onHomeClick = onHomeClick,
                 onOrdersClick = onOrdersClick,
                 onHistoryClick = onHistoryClick,
@@ -1209,7 +1227,8 @@ fun DriverFoundScreen(
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {}
+    onProfileClick: () -> Unit = {},
+    currentTab: CustomerDestination = CustomerDashboard()
 ) {
     val backgroundGradient = remember {
         Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
@@ -1217,7 +1236,8 @@ fun DriverFoundScreen(
 
     Scaffold(
         bottomBar = {
-            DashboardBottomBar(
+            CustomerBottomBar(
+                currentTab = currentTab,
                 onHomeClick = onHomeClick,
                 onOrdersClick = onOrdersClick,
                 onHistoryClick = onHistoryClick,
@@ -1352,7 +1372,8 @@ fun YourBookingsScreen(
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {}
+    onProfileClick: () -> Unit = {},
+    currentTab: CustomerDestination = CustomerDashboard()
 ) {
     val backgroundGradient = remember {
         Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
@@ -1361,7 +1382,8 @@ fun YourBookingsScreen(
 
     Scaffold(
         bottomBar = {
-            DashboardBottomBar(
+            CustomerBottomBar(
+                currentTab = currentTab,
                 onHomeClick = onHomeClick,
                 onOrdersClick = onOrdersClick,
                 onHistoryClick = onHistoryClick,
@@ -1485,7 +1507,8 @@ fun CustomerProfileScreen(
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {}
+    onProfileClick: () -> Unit = {},
+    currentTab: CustomerDestination = CustomerDashboard()
 ) {
     val backgroundGradient = remember {
         Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
@@ -1494,7 +1517,8 @@ fun CustomerProfileScreen(
 
     Scaffold(
         bottomBar = {
-            DashboardBottomBar(
+            CustomerBottomBar(
+                currentTab = currentTab,
                 onHomeClick = onHomeClick,
                 onOrdersClick = onOrdersClick,
                 onHistoryClick = onHistoryClick,
@@ -1628,7 +1652,8 @@ fun DriverProfileDetailScreen(
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {}
+    onProfileClick: () -> Unit = {},
+    currentTab: CustomerDestination = CustomerDashboard()
 ) {
     val backgroundGradient = remember {
         Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
@@ -1636,7 +1661,8 @@ fun DriverProfileDetailScreen(
 
     Scaffold(
         bottomBar = {
-            DashboardBottomBar(
+            CustomerBottomBar(
+                currentTab = currentTab,
                 onHomeClick = onHomeClick,
                 onOrdersClick = onOrdersClick,
                 onHistoryClick = onHistoryClick,
@@ -1820,7 +1846,8 @@ fun CancelBookingScreen(
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {}
+    onProfileClick: () -> Unit = {},
+    currentTab: CustomerDestination = CustomerDashboard()
 ) {
     val backgroundGradient = remember {
         Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
@@ -1829,7 +1856,8 @@ fun CancelBookingScreen(
 
     Scaffold(
         bottomBar = {
-            DashboardBottomBar(
+            CustomerBottomBar(
+                currentTab = currentTab,
                 onHomeClick = onHomeClick,
                 onOrdersClick = onOrdersClick,
                 onHistoryClick = onHistoryClick,
@@ -2122,7 +2150,8 @@ fun BookingShipmentsDetailScreen(
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {}
+    onProfileClick: () -> Unit = {},
+    currentTab: CustomerDestination = CustomerDashboard()
 ) {
     val backgroundGradient = remember {
         Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
@@ -2130,7 +2159,8 @@ fun BookingShipmentsDetailScreen(
 
     Scaffold(
         bottomBar = {
-            DashboardBottomBar(
+            CustomerBottomBar(
+                currentTab = currentTab,
                 onHomeClick = onHomeClick,
                 onOrdersClick = onOrdersClick,
                 onHistoryClick = onHistoryClick,

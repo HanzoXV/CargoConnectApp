@@ -16,6 +16,7 @@ import com.example.cargoconnectapp.ui.models.datamodels.DocumentsData
 import com.example.cargoconnectapp.ui.models.datamodels.LoginRequest
 import com.example.cargoconnectapp.ui.models.datamodels.Points
 import com.example.cargoconnectapp.ui.models.datamodels.RegisterRequest
+import com.example.cargoconnectapp.ui.models.datamodels.UserDataRequest
 import com.example.cargoconnectapp.ui.models.datamodels.VehicleData
 import com.example.cargoconnectapp.ui.models.helpermodels.UserRoles
 import kotlinx.coroutines.launch
@@ -123,40 +124,65 @@ class AuthViewModel (private val sessionViewModel: UserSessionViewModel) : ViewM
         viewModelScope.launch {
             isLoading = true
             errorMessage = null
-            val hashed = hashPassword(userPassword)
-            val request = LoginRequest(email = userEmail, password = hashed)
 
             try {
-                val loginResponse = RetrofitClient.instance.loginUser(request)
+                // Call 1: Login
+                val loginResponse = RetrofitClient.instance.loginUser(
+                    LoginRequest(userEmail, hashPassword(userPassword))
+                )
 
-                if (loginResponse.isSuccessful && loginResponse.body() != null) {
+                if (loginResponse.isSuccessful) {
+                    val loginBody = loginResponse.body()
+                    if (loginBody == null) {
+                        Log.e(
+                            "AUTH_DEBUG",
+                            "Login response body is null — raw: ${loginResponse.raw()}"
+                        )
+                        errorMessage = "Server response error"
+                        return@launch
+                    }
+
+                Log.d("AUTH_DEBUG", "Login OK — userId=${loginBody.userId} roleName=${loginBody.roleName}")
+
+                val profileResponse = RetrofitClient.instance.getUserData(UserDataRequest(userId = loginBody.userId ?: -1))
+                Log.d("AUTH_DEBUG", "Profile code=${profileResponse.code()} body=${profileResponse.body()} error=${profileResponse.errorBody()?.string()}")
+
+                if (profileResponse.isSuccessful && profileResponse.body() != null) {
                     val loginBody = loginResponse.body()!!
                     val id = loginBody.userId ?: -1
-                    val role = mapRoleNameToEnum(loginBody.roleName)
+                    val roleName = loginBody.roleName ?: ""
+                    val roleEnum = mapRoleNameToEnum(roleName)
+                    Log.d("AUTH_DEBUG", "roleName from server: '${loginBody.roleName}'")
+                    Log.d("AUTH_DEBUG", "roleName from server: '${roleEnum}'")
 
-                    val profileResponse = RetrofitClient.instance.getUserData(id)
+                    val request = UserDataRequest(userId = id)
 
+                    // Call 2: Profile Fetch
+                    val profileResponse = RetrofitClient.instance.getUserData(request)
                     if (profileResponse.isSuccessful && profileResponse.body() != null) {
-                        val profileData = profileResponse.body()!!
-
                         sessionViewModel.updateSession(
                             id = id,
                             email = userEmail,
-                            role = role,
-                            userData = profileData
+                            role = roleEnum,
+                            userData = profileResponse.body()!!
                         )
-
-                        onSuccess(loginBody.roleName ?: "")
+                        onSuccess(roleName)
                     } else {
-                        errorMessage = "Login successful, but failed to load profile data."
+                        errorMessage =
+                            "Account verified, but profile sync failed. Please try again."
+                        sessionViewModel.clearSession()
                     }
-                } else {
-                    errorMessage = loginResponse.errorBody()?.string() ?: "Invalid credentials"
                 }
-            } catch (e: Exception) {
-                errorMessage = "Network Error: Check your connection"
+                } else {
+                    Log.d("AUTH_DEBUG", "Login FAILED — code=${loginResponse.code()} error=${loginResponse.errorBody()?.string()}")
+                    errorMessage = "Invalid email or password"
+                }
+            }
+            catch (e: Exception) {
+                errorMessage = "Connection Error: Please check your internet."
+                Log.e("CONNECTION_ERROR", "MESSAGE: ${e.message}")
                 e.printStackTrace()
-            } finally {
+            }finally {
                 isLoading = false
             }
         }
@@ -291,7 +317,7 @@ class AuthViewModel (private val sessionViewModel: UserSessionViewModel) : ViewM
 
 // --- Utility ---
 
-    fun clearAll() {
+    fun logout() {
         userId = -1
         userEmail = ""
         userPassword = ""
@@ -325,7 +351,9 @@ class AuthViewModel (private val sessionViewModel: UserSessionViewModel) : ViewM
     }
 
     private fun mapRoleNameToEnum(roleName: String?): UserRoles {
-        return when (roleName?.lowercase()) {
+        val lower = roleName?.lowercase()
+        Log.d("AUTH_DEBUG", "mapRoleNameToEnum input: '$roleName' lowered: '$lower'")
+        return when (lower) {
             "driver" -> UserRoles.Driver
             "customer" -> UserRoles.Customer
             "admin" -> UserRoles.Admin

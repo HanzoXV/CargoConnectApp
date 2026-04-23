@@ -1344,28 +1344,3 @@ fun getFileName(context: Context, uri: Uri?): String {
 fun E() {
    SplashScreen {  }
 }
-@Preview
-@Composable
-fun F() {
-    LoginScreen(AuthViewModel(), {}, {})
-}
-@Preview
-@Composable
-fun a() {
-    RegisterStep2(AuthViewModel(), {}, {})
-}
-@Preview
-@Composable
-fun b() {
-    RegisterStep3(AuthViewModel(), {}, {})
-}
-@Preview
-@Composable
-fun c() {
-    RegisterStep4(AuthViewModel(), {}, {}, LocalContext.current)
-}
-@Preview
-@Composable
-fun d() {
-    RegisterStep5(AuthViewModel(), {}, {}, LocalContext.current)
-}

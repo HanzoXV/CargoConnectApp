@@ -6,6 +6,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,6 +34,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.cargoconnectapp.ui.models.destinations.DriverDashboard
+import com.example.cargoconnectapp.ui.models.destinations.DriverDestination
+import com.example.cargoconnectapp.ui.models.viewmodels.DriverViewModel
 import com.example.cargoconnectapp.ui.navigation.*
 import com.example.cargoconnectapp.ui.themes.*
 import java.time.LocalDate
@@ -92,40 +97,33 @@ data class ShipmentDetail(
 // ─────────────────────────────────────────────
 // DRIVER DASHBOARD SCREEN
 // ─────────────────────────────────────────────
-
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun DriverDashboardScreen(
-    routeStops: List<Triple<String, String, String>> = listOf(
-        Triple("Peshawar", "Haji Camp Truck Adda", "~0KM"),
-        Triple("Rawalpindi", "Kohistan Truck Stand", "~170KM"),
-        Triple("Multan", "Vehari Road Truck Stop", "~330KM"),
-        Triple("Karachi", "Mauripur Truck Stand", "~700KM")
-    ),
-    reachedStops: Set<Int> = setOf(1, 2, 3),
-    currentCapacityKg: Int = 1200,
-    totalCapacityKg: Int = 3000,
+    driverViewModel: DriverViewModel,
     onHomeClick: () -> Unit = {},
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
     onProfileClick: () -> Unit = {},
     onDelayClick: (Int) -> Unit = {},
-    onReachedClick: (Int) -> Unit = {}
+    onReachedClick: (Int) -> Unit = {},
+    currentTab: DriverDestination = DriverDashboard()
 ) {
     val backgroundGradient = remember {
         Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
     }
 
+    val activeRoute = driverViewModel.activeRoute
+    val checkpoints = activeRoute?.checkpoints?.sortedBy { it.sequenceNo } ?: emptyList()
+    val reachedCount = checkpoints.count { it.reached?: false }
+
     var selectedTab by remember { mutableStateOf("Trip") }
-    var currentCapacity by remember { mutableStateOf(currentCapacityKg.toFloat()) }
-    var vehicleLength by remember { mutableStateOf(30f) }
-    var vehicleWidth by remember { mutableStateOf(30f) }
-    var vehicleHeight by remember { mutableStateOf(30f) }
 
     Scaffold(
         bottomBar = {
             DashboardBottomBar(
+                currentTab = currentTab,
                 onHomeClick = onHomeClick,
                 onOrdersClick = onOrdersClick,
                 onHistoryClick = onHistoryClick,
@@ -147,7 +145,6 @@ fun DriverDashboardScreen(
             AppHeading("Dashboard")
             AddSpace(16)
 
-            // Tab Switcher
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TabButton(text = "Trip Info", isSelected = selectedTab == "Trip", onClick = { selectedTab = "Trip" })
                 TabButton(text = "Truck Info", isSelected = selectedTab == "Truck", onClick = { selectedTab = "Truck" })
@@ -164,20 +161,46 @@ fun DriverDashboardScreen(
                     shadowElevation = 2.dp
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Route Info", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = textThemeColor)
-                        AddSpace(12)
-                        routeStops.forEachIndexed { index, (city, address, distance) ->
-                            val isReached = index in reachedStops
-                            RouteItem(
-                                city = city,
-                                address = address,
-                                distance = distance,
-                                isReached = isReached,
-                                onDelayClick = { onDelayClick(index) },
-                                onReachedClick = { onReachedClick(index) }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Route Info", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = textThemeColor)
+                            Text(
+                                "${checkpoints.size} stops  •  $reachedCount done",
+                                fontSize = 11.sp,
+                                color = Color.Gray
                             )
-                            if (index < routeStops.lastIndex) {
-                                HorizontalDivider(color = Color.LightGray.copy(alpha = 0.4f))
+                        }
+                        AddSpace(8)
+                        if (checkpoints.isEmpty()) {
+                            Text(
+                                "No active route.",
+                                fontSize = 13.sp,
+                                color = Color.Gray,
+                                modifier = Modifier.padding(vertical = 12.dp)
+                            )
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 200.dp),
+                                userScrollEnabled = true
+                            ) {
+                                itemsIndexed(checkpoints) { index, checkpoint ->
+                                    RouteItem(
+                                        city = checkpoint.name?: "N/A",
+                                        address = "Seq ${checkpoint.sequenceNo}",
+                                        distance = "",
+                                        isReached = checkpoint.reached?: false,
+                                        onDelayClick = { onDelayClick(index) },
+                                        onReachedClick = { onReachedClick(index) }
+                                    )
+                                    if (index < checkpoints.lastIndex) {
+                                        HorizontalDivider(color = Color.LightGray.copy(alpha = 0.4f))
+                                    }
+                                }
                             }
                         }
                     }
@@ -185,7 +208,6 @@ fun DriverDashboardScreen(
 
                 AddSpace(16)
 
-                // Map placeholder
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -201,15 +223,12 @@ fun DriverDashboardScreen(
 
             } else {
                 // ── TRUCK INFO TAB ──
-
-                // Truck Image
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(180.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    // Replace with actual truck image resource
                     Surface(
                         modifier = Modifier.size(200.dp, 140.dp),
                         shape = RoundedCornerShape(12.dp),
@@ -223,7 +242,6 @@ fun DriverDashboardScreen(
 
                 AddSpace(8)
 
-                // Capacity Bar
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -234,7 +252,10 @@ fun DriverDashboardScreen(
                         Text("Current Capacity", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = textThemeColor)
                         AddSpace(12)
 
-                        val capacityPercent = currentCapacity / totalCapacityKg
+                        val capacityPercent = if (driverViewModel.totalCapacity > 0)
+                            driverViewModel.currentCapacity.toFloat() / driverViewModel.totalCapacity
+                        else 0f
+
                         LinearProgressIndicator(
                             progress = { capacityPercent },
                             modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
@@ -252,18 +273,23 @@ fun DriverDashboardScreen(
 
                         CounterRow(
                             label = "Current Capacity",
-                            value = "${currentCapacity.toInt()} KGs",
-                            onDecrease = { if (currentCapacity > 0) currentCapacity -= 100 },
-                            onIncrease = { if (currentCapacity < totalCapacityKg) currentCapacity += 100 }
+                            value = "${driverViewModel.currentCapacity} KGs",
+                            onDecrease = { driverViewModel.setCapacity(
+                                (driverViewModel.currentCapacity - 100).coerceAtLeast(0),
+                                driverViewModel.totalCapacity
+                            )},
+                            onIncrease = { driverViewModel.setCapacity(
+                                (driverViewModel.currentCapacity + 100).coerceAtMost(driverViewModel.totalCapacity),
+                                driverViewModel.totalCapacity
+                            )}
                         )
                         AddSpace(8)
-                        InfoRow(label = "Total Capacity", value = "$totalCapacityKg KGs")
+                        InfoRow(label = "Total Capacity", value = "${driverViewModel.totalCapacity} KGs")
                     }
                 }
 
                 AddSpace(16)
 
-                // Dimensions
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -275,23 +301,47 @@ fun DriverDashboardScreen(
                         AddSpace(12)
                         CounterRow(
                             label = "Length",
-                            value = "${vehicleLength.toInt()}cm",
-                            onDecrease = { if (vehicleLength > 0) vehicleLength -= 5 },
-                            onIncrease = { vehicleLength += 5 }
+                            value = "${driverViewModel.currentDimensions.length}cm",
+                            onDecrease = { driverViewModel.setCurrentDimensions(
+                                (driverViewModel.currentDimensions.length - 5).coerceAtLeast(0),
+                                driverViewModel.currentDimensions.width,
+                                driverViewModel.currentDimensions.height
+                            )},
+                            onIncrease = { driverViewModel.setCurrentDimensions(
+                                driverViewModel.currentDimensions.length + 5,
+                                driverViewModel.currentDimensions.width,
+                                driverViewModel.currentDimensions.height
+                            )}
                         )
                         AddSpace(8)
                         CounterRow(
                             label = "Width",
-                            value = "${vehicleWidth.toInt()}cm",
-                            onDecrease = { if (vehicleWidth > 0) vehicleWidth -= 5 },
-                            onIncrease = { vehicleWidth += 5 }
+                            value = "${driverViewModel.currentDimensions.width}cm",
+                            onDecrease = { driverViewModel.setCurrentDimensions(
+                                driverViewModel.currentDimensions.length,
+                                (driverViewModel.currentDimensions.width - 5).coerceAtLeast(0),
+                                driverViewModel.currentDimensions.height
+                            )},
+                            onIncrease = { driverViewModel.setCurrentDimensions(
+                                driverViewModel.currentDimensions.length,
+                                driverViewModel.currentDimensions.width + 5,
+                                driverViewModel.currentDimensions.height
+                            )}
                         )
                         AddSpace(8)
                         CounterRow(
                             label = "Height",
-                            value = "${vehicleHeight.toInt()}cm",
-                            onDecrease = { if (vehicleHeight > 0) vehicleHeight -= 5 },
-                            onIncrease = { vehicleHeight += 5 }
+                            value = "${driverViewModel.currentDimensions.height}cm",
+                            onDecrease = { driverViewModel.setCurrentDimensions(
+                                driverViewModel.currentDimensions.length,
+                                driverViewModel.currentDimensions.width,
+                                (driverViewModel.currentDimensions.height - 5).coerceAtLeast(0)
+                            )},
+                            onIncrease = { driverViewModel.setCurrentDimensions(
+                                driverViewModel.currentDimensions.length,
+                                driverViewModel.currentDimensions.width,
+                                driverViewModel.currentDimensions.height + 5
+                            )}
                         )
                     }
                 }
@@ -336,7 +386,8 @@ fun DashboardShipmentsScreen(
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {}
+    onProfileClick: () -> Unit = {},
+    currentTab: DriverDestination = DriverDashboard()
 ) {
     val backgroundGradient = remember {
         Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
@@ -345,11 +396,13 @@ fun DashboardShipmentsScreen(
     Scaffold(
         bottomBar = {
             DashboardBottomBar(
+                currentTab = currentTab,
                 onHomeClick = onHomeClick,
                 onOrdersClick = onOrdersClick,
                 onHistoryClick = onHistoryClick,
                 onChatClick = onChatClick,
-                onProfileClick = onProfileClick
+                onProfileClick = onProfileClick,
+
             )
         },
         containerColor = Color.Transparent
@@ -450,7 +503,8 @@ fun ShipmentRequestsScreen(
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {}
+    onProfileClick: () -> Unit = {},
+    currentTab: DriverDestination = DriverDashboard()
 ) {
     val backgroundGradient = remember {
         Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
@@ -459,6 +513,7 @@ fun ShipmentRequestsScreen(
     Scaffold(
         bottomBar = {
             DashboardBottomBar(
+                currentTab = currentTab,
                 onHomeClick = onHomeClick,
                 onOrdersClick = onOrdersClick,
                 onHistoryClick = onHistoryClick,
@@ -584,7 +639,8 @@ fun ShipmentRequestDetailScreen(
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {}
+    onProfileClick: () -> Unit = {},
+    currentTab: DriverDestination = DriverDashboard()
 ) {
     val backgroundGradient = remember {
         Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
@@ -593,6 +649,7 @@ fun ShipmentRequestDetailScreen(
     Scaffold(
         bottomBar = {
             DashboardBottomBar(
+                currentTab = currentTab,
                 onHomeClick = onHomeClick,
                 onOrdersClick = onOrdersClick,
                 onHistoryClick = onHistoryClick,
@@ -744,7 +801,8 @@ fun CustomersScreen(
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {}
+    onProfileClick: () -> Unit = {},
+    currentTab: DriverDestination = DriverDashboard()
 ) {
     val backgroundGradient = remember {
         Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
@@ -753,6 +811,7 @@ fun CustomersScreen(
     Scaffold(
         bottomBar = {
             DashboardBottomBar(
+                currentTab = currentTab,
                 onHomeClick = onHomeClick,
                 onOrdersClick = onOrdersClick,
                 onHistoryClick = onHistoryClick,
@@ -923,7 +982,8 @@ fun CustomerShipmentsDetailScreen(
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {}
+    onProfileClick: () -> Unit = {},
+    currentTab: DriverDestination = DriverDashboard()
 ) {
     val backgroundGradient = remember {
         Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
@@ -932,6 +992,7 @@ fun CustomerShipmentsDetailScreen(
     Scaffold(
         bottomBar = {
             DashboardBottomBar(
+                currentTab = currentTab,
                 onHomeClick = onHomeClick,
                 onOrdersClick = onOrdersClick,
                 onHistoryClick = onHistoryClick,
@@ -1001,7 +1062,8 @@ fun ActivityScreen(
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
     onChatNavClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {}
+    onProfileClick: () -> Unit = {},
+    currentTab: DriverDestination = DriverDashboard()
 ) {
     val backgroundGradient = remember {
         Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
@@ -1012,6 +1074,7 @@ fun ActivityScreen(
     Scaffold(
         bottomBar = {
             DashboardBottomBar(
+                currentTab = currentTab,
                 onHomeClick = onHomeClick,
                 onOrdersClick = onOrdersClick,
                 onHistoryClick = onHistoryClick,
@@ -1153,7 +1216,8 @@ fun ProfileScreen(
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {}
+    onProfileClick: () -> Unit = {},
+    currentTab: DriverDestination = DriverDashboard()
 ) {
     val backgroundGradient = remember {
         Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
@@ -1164,6 +1228,7 @@ fun ProfileScreen(
     Scaffold(
         bottomBar = {
             DashboardBottomBar(
+                currentTab = currentTab,
                 onHomeClick = onHomeClick,
                 onOrdersClick = onOrdersClick,
                 onHistoryClick = onHistoryClick,
@@ -1231,7 +1296,7 @@ fun ProfileScreen(
                 Column {
                     ProfileMenuItem(text = "Your information", onClick = onYourInformationClick)
                     HorizontalDivider(color = Color.LightGray.copy(alpha = 0.4f))
-                    ProfileMenuItem(text = "Activate Route", onClick = onActivateRouteClick)
+                    ProfileMenuItem(text = "Manage Routes", onClick = onActivateRouteClick)
                 }
             }
 
@@ -1300,7 +1365,8 @@ fun DeliveryDelayScreen(
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {}
+    onProfileClick: () -> Unit = {},
+    currentTab: DriverDestination = DriverDashboard()
 ) {
     val backgroundGradient = remember {
         Brush.verticalGradient(listOf(Color(0xFFE0F2F1), backgroundColor))
@@ -1315,6 +1381,7 @@ fun DeliveryDelayScreen(
     Scaffold(
         bottomBar = {
             DashboardBottomBar(
+                currentTab = currentTab,
                 onHomeClick = onHomeClick,
                 onOrdersClick = onOrdersClick,
                 onHistoryClick = onHistoryClick,
@@ -1604,13 +1671,6 @@ fun ChatScreen(
             }
         }
     }
-}
-
-@RequiresApi(Build.VERSION_CODES.O)
-@Preview(showBackground = true)
-@Composable
-fun PreviewDriverDashboardScreen() {
-    DriverDashboardScreen()
 }
 
 @Preview(showBackground = true)

@@ -18,6 +18,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Assignment
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.ChevronLeft
@@ -43,10 +44,23 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.cargoconnectapp.ui.models.destinations.CustomerBookings
+import com.example.cargoconnectapp.ui.models.destinations.CustomerChat
+import com.example.cargoconnectapp.ui.models.destinations.CustomerDashboard
+import com.example.cargoconnectapp.ui.models.destinations.CustomerDestination
+import com.example.cargoconnectapp.ui.models.destinations.CustomerNewShipment
+import com.example.cargoconnectapp.ui.models.destinations.CustomerProfile
+import com.example.cargoconnectapp.ui.models.destinations.DriverChat
+import com.example.cargoconnectapp.ui.models.destinations.DriverDashboard
+import com.example.cargoconnectapp.ui.models.destinations.DriverDeliveries
+import com.example.cargoconnectapp.ui.models.destinations.DriverDestination
+import com.example.cargoconnectapp.ui.models.destinations.DriverProfile
+import com.example.cargoconnectapp.ui.models.destinations.DriverShipmentRequest
 import com.example.cargoconnectapp.ui.navigation.screens.ChatMessage
 import com.example.cargoconnectapp.ui.themes.actionTealColor
 import com.example.cargoconnectapp.ui.themes.inputColor
@@ -483,6 +497,7 @@ fun AppHeader(
 
 @Composable
 fun DashboardBottomBar(
+    currentTab: DriverDestination,
     onHomeClick: () -> Unit,
     onOrdersClick: () -> Unit,
     onHistoryClick: () -> Unit,
@@ -495,29 +510,78 @@ fun DashboardBottomBar(
     ) {
         NavigationBarItem(
             icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
-            selected = true,
+            selected = currentTab is DriverDashboard,
             onClick = onHomeClick,
             colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor)
         )
         NavigationBarItem(
             icon = { Icon(Icons.Default.Inventory, contentDescription = "Orders") },
-            selected = false,
-            onClick = onOrdersClick
+            selected = currentTab is DriverShipmentRequest,
+            onClick = onOrdersClick,
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor)
         )
         NavigationBarItem(
             icon = { Icon(Icons.Default.Assignment, contentDescription = "History") },
-            selected = false,
-            onClick = onHistoryClick
+            selected = currentTab is DriverDeliveries,
+            onClick = onHistoryClick,
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor)
         )
         NavigationBarItem(
             icon = { Icon(Icons.Default.ChatBubble, contentDescription = "Chat") },
-            selected = false,
-            onClick = onChatClick
+            selected = currentTab is DriverChat,
+            onClick = onChatClick,
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor)
         )
         NavigationBarItem(
             icon = { Icon(Icons.Default.AccountCircle, contentDescription = "Profile") },
-            selected = false,
-            onClick = onProfileClick
+            selected = currentTab is DriverProfile,
+            onClick = onProfileClick,
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor)
+        )
+    }
+}
+@Composable
+fun CustomerBottomBar(
+    currentTab: CustomerDestination,
+    onHomeClick: () -> Unit,
+    onOrdersClick: () -> Unit,
+    onHistoryClick: () -> Unit,
+    onChatClick: () -> Unit,
+    onProfileClick: () -> Unit
+) {
+    NavigationBar(
+        containerColor = Color.White,
+        tonalElevation = 8.dp
+    ) {
+        NavigationBarItem(
+            icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
+            selected = currentTab is CustomerDashboard,
+            onClick = onHomeClick,
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor)
+        )
+        NavigationBarItem(
+            icon = { Icon(Icons.Default.Add, contentDescription = "New Shipment") },
+            selected = currentTab is CustomerNewShipment,
+            onClick = onOrdersClick,
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor)
+        )
+        NavigationBarItem(
+            icon = { Icon(Icons.Default.Assignment, contentDescription = "Bookings") },
+            selected = currentTab is CustomerBookings,
+            onClick = onHistoryClick,
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor)
+        )
+        NavigationBarItem(
+            icon = { Icon(Icons.Default.ChatBubble, contentDescription = "Chat") },
+            selected = currentTab is CustomerChat,
+            onClick = onChatClick,
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor)
+        )
+        NavigationBarItem(
+            icon = { Icon(Icons.Default.AccountCircle, contentDescription = "Profile") },
+            selected = currentTab is CustomerProfile,
+            onClick = onProfileClick,
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = actionTealColor)
         )
     }
 }
@@ -908,4 +972,9 @@ fun ChatBubble(message: ChatMessage) {
             )
         }
     }
+}
+@Preview
+@Composable
+fun show () {
+    RouteItem("Lahore", "Truck Adda", "1200KMs", false, {})
 }

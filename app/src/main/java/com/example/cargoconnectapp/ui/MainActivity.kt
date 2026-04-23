@@ -20,6 +20,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.rememberNavController
 import com.example.cargoconnectapp.ui.models.destinations.Splash
 import com.example.cargoconnectapp.ui.models.viewmodels.AuthViewModel
+import com.example.cargoconnectapp.ui.models.viewmodels.DriverViewModel
 import com.example.cargoconnectapp.ui.models.viewmodels.UserSessionViewModel
 import com.example.cargoconnectapp.ui.navigation.screens.graphs.authGraph
 import com.example.cargoconnectapp.ui.navigation.screens.graphs.customerGraph
@@ -31,7 +32,7 @@ class MainActivity : ComponentActivity() {
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
         val sessionViewModel: UserSessionViewModel by viewModels()
-
+        val driverViewModel: DriverViewModel by viewModels()
         val authViewModel: AuthViewModel by viewModels {
             viewModelFactory {
                 initializer {
@@ -43,7 +44,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            AppNavigation(sessionViewModel, authViewModel)
+            AppNavigation(sessionViewModel, authViewModel, driverViewModel)
         }
     }
 }
@@ -52,6 +53,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppNavigation(sessionViewModel: UserSessionViewModel,
                   authViewModel: AuthViewModel,
+                  driverViewModel: DriverViewModel,
                   navController: NavHostController = rememberNavController()
 ) {
 
@@ -71,7 +73,7 @@ fun AppNavigation(sessionViewModel: UserSessionViewModel,
         })
     {
         authGraph(navController, sessionViewModel, authViewModel)
-        driverGraph(navController, sessionViewModel, authViewModel)
-        customerGraph(navController)
+        driverGraph(navController, sessionViewModel, authViewModel, driverViewModel)
+        customerGraph(navController, sessionViewModel, authViewModel)
     }
 }

@@ -20,14 +20,11 @@ data class RegisterRequest(
     @SerializedName("PhotoLink") val photoLink: String,
     @SerializedName("LicenseNo") val licenseNo: String? = null,
     @SerializedName("Vehicle") val vehicle: VehicleData? = null,
-    @SerializedName("Documents") val documents: DocumentsData? = null,
-    @SerializedName("routeData") val routeData: List<Points>? = null,
-    @SerializedName("departure") val departure: String? = null,
-    @SerializedName("arrival") val arrival: String? = null
+    @SerializedName("Documents") val documents: DocumentsData? = null
 )
 
 data class AuthResponse(
-    @SerializedName("message") val message: String,
+    @SerializedName("message") val message: String? = null,
     @SerializedName("roleID") val roleId: Int,
     @SerializedName("roleName") val roleName: String?,
     @SerializedName("userID") val userId: Int?,
@@ -60,48 +57,20 @@ data class Points(
 data class UploadResponse(
     @SerializedName("link") val link: String
 )
-
+data class UserDataRequest(
+    val userId: Int
+)
 data class UserDataResponse(
     @SerializedName("name")
     val fullName: String,
     @SerializedName("contact")
     val contactNo: String,
     @SerializedName("license_no")
-    val licenseNo: String,
+    val licenseNo: String?,
     @SerializedName("street_no")
-    val streetNo: String,
+    val streetNo: String?,
     @SerializedName("city")
-    val city: String,
+    val city: String?,
     @SerializedName("profileImageUrl")
-    val profileImageUrl: String?,
-    @SerializedName("allRoutes")
-    val allRoutes: List<RouteData>?,
-    @SerializedName("activeRoute")
-    val activeRoute: RouteData?,
-    @SerializedName("nextRoute")
-    val nextRoute: RouteData?
-)
-
-data class RouteData(
-    @SerializedName("route_id")
-    val routeId: Int,
-    @SerializedName("is_active")
-    val isActive: Boolean? = null,
-    @SerializedName("is_next_route")
-    val isNextRoute: Boolean? = null,
-    @SerializedName("points")
-    val points: List<CheckpointData>
-)
-
-data class CheckpointData(
-    @SerializedName("name")
-    val name: String,
-    @SerializedName("latitude")
-    val latitude: Double,
-    @SerializedName("longitude")
-    val longitude: Double,
-    @SerializedName("sequence_no")
-    val sequenceNo: Int,
-    @SerializedName("reached")
-    val reached: Boolean
+    val profileImageUrl: String?
 )
