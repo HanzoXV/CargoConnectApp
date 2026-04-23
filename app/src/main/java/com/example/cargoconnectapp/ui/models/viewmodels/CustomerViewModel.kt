@@ -34,7 +34,11 @@ class CustomerViewModel : ViewModel() {
     var packageLength by mutableStateOf("")
     var packageWidth by mutableStateOf("")
     var packageHeight by mutableStateOf("")
+    
     var isFragile by mutableStateOf(false)
+    var isFlammable by mutableStateOf(false)
+    var isLiquid by mutableStateOf(false)
+    var isKeepUpright by mutableStateOf(false)
 
     var pickupPoint by mutableStateOf("")
     var destination by mutableStateOf("")
@@ -42,6 +46,9 @@ class CustomerViewModel : ViewModel() {
     var destinationGeoPoint by mutableStateOf<GeoPoint?>(null)
     var selectedLocalDate by mutableStateOf<LocalDate?>(null)
     var isStrictSchedule by mutableStateOf(false)
+
+    // Selection mode: "Pickup" or "Destination"
+    var locationSelectionMode by mutableStateOf("Pickup")
 
     var recipientFirstName by mutableStateOf("")
     var recipientLastName by mutableStateOf("")
@@ -95,6 +102,9 @@ class CustomerViewModel : ViewModel() {
         packageWidth = ""
         packageHeight = ""
         isFragile = false
+        isFlammable = false
+        isLiquid = false
+        isKeepUpright = false
     }
 
     // ── API Spot 2: Sync and Complete ────────────────────────────────────────
@@ -110,7 +120,7 @@ class CustomerViewModel : ViewModel() {
                     val packageItem = PackageCreateItem(
                         shipmentId = shipmentId,
                         name = pkg.name,
-                        weight = pkg.weight.toDoubleOrNull() ?: 0.0,
+                        weight = pkg.weight.removeSuffix(" kg").toDoubleOrNull() ?: 0.0,
                         length = dims.getOrNull(0)?.toDoubleOrNull() ?: 0.0,
                         width = dims.getOrNull(1)?.toDoubleOrNull() ?: 0.0,
                         height = dims.getOrNull(2)?.toDoubleOrNull() ?: 0.0,
@@ -121,6 +131,9 @@ class CustomerViewModel : ViewModel() {
                     
                     val attributeIds = mutableListOf<Int>()
                     if (pkg.fragile) attributeIds.add(PackageAttributes.FRAGILE)
+                    if (isFlammable) attributeIds.add(PackageAttributes.FLAMMABLE)
+                    if (isLiquid) attributeIds.add(PackageAttributes.LIQUID)
+                    if (isKeepUpright) attributeIds.add(PackageAttributes.KEEP_UPRIGHT)
                     
                     val request = PackageWithAttributesRequest(packageItem, attributeIds)
                     RetrofitClient.instance.addPackage(request)

@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.os.Build
 import androidx.annotation.RequiresApi
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import coil.compose.AsyncImage
 import com.example.cargoconnectapp.ui.models.datamodels.*
@@ -43,6 +44,7 @@ import java.time.YearMonth
 import com.example.cargoconnectapp.ui.navigation.*
 import com.example.cargoconnectapp.ui.themes.*
 import com.example.cargoconnectapp.ui.models.map.OSMContainer
+import com.example.cargoconnectapp.ui.models.map.getAddressFromGeoPoint
 import org.osmdroid.util.GeoPoint
 
 // ─────────────────────────────────────────────
@@ -191,9 +193,6 @@ fun CustomerDashboardScreen(
 }
 
 // ─────────────────────────────────────────────
-// DASHBOARD HELPERS
-// ─────────────────────────────────────────────
-// ─────────────────────────────────────────────
 // NEW SHIPMENT FLOW (TAB 2)
 // ─────────────────────────────────────────────
 
@@ -297,9 +296,15 @@ fun NewShipmentPackageDetailsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
             GlassCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = customerViewModel.isFragile, onCheckedChange = { customerViewModel.isFragile = it }, colors = CheckboxDefaults.colors(checkedColor = actionTealColor))
-                    Text("This item is fragile", fontWeight = FontWeight.Medium)
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FormCheckbox(label = "Fragile", checked = customerViewModel.isFragile, onCheckedChange = { customerViewModel.isFragile = it })
+                        FormCheckbox(label = "Liquid", checked = customerViewModel.isLiquid, onCheckedChange = { customerViewModel.isLiquid = it })
+                    }
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FormCheckbox(label = "Flammable", checked = customerViewModel.isFlammable, onCheckedChange = { customerViewModel.isFlammable = it })
+                        FormCheckbox(label = "Keep Upright", checked = customerViewModel.isKeepUpright, onCheckedChange = { customerViewModel.isKeepUpright = it })
+                    }
                 }
             }
 
@@ -310,6 +315,14 @@ fun NewShipmentPackageDetailsScreen(
             }
             Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+}
+
+@Composable
+fun FormCheckbox(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { onCheckedChange(!checked) }) {
+        Checkbox(checked = checked, onCheckedChange = onCheckedChange, colors = CheckboxDefaults.colors(checkedColor = actionTealColor))
+        Text(label, fontSize = 14.sp, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -329,6 +342,7 @@ fun NewShipmentRouteScreen(
     currentTab: CustomerDestination = CustomerDashboard()
 ) {
     var currentMonth by remember { mutableStateOf(YearMonth.now()) }
+    val context = LocalContext.current
 
     Scaffold(
         bottomBar = { CustomerBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) },
@@ -344,11 +358,12 @@ fun NewShipmentRouteScreen(
                 OSMContainer(
                     points = routePoints,
                     onMapClick = { geoPoint ->
-                        // Simple logic: first click is pickup, second is destination
-                        if (customerViewModel.pickupGeoPoint == null) {
+                        if (customerViewModel.locationSelectionMode == "Pickup") {
                             customerViewModel.pickupGeoPoint = geoPoint
+                            customerViewModel.pickupPoint = getAddressFromGeoPoint(context, geoPoint)
                         } else {
                             customerViewModel.destinationGeoPoint = geoPoint
+                            customerViewModel.destination = getAddressFromGeoPoint(context, geoPoint)
                         }
                     }
                 )
@@ -359,7 +374,7 @@ fun NewShipmentRouteScreen(
                     shape = RoundedCornerShape(16.dp)
                 ) {
                     Text(
-                        "Tap map to set pickup & destination",
+                        "Selecting: ${customerViewModel.locationSelectionMode} Location",
                         modifier = Modifier.padding(12.dp),
                         textAlign = TextAlign.Center,
                         fontSize = 12.sp,
@@ -376,9 +391,21 @@ fun NewShipmentRouteScreen(
                     Text("Route & Schedule", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
                     Spacer(modifier = Modifier.height(12.dp))
                     
-                    AppTextField(value = customerViewModel.pickupPoint, onValueChange = { customerViewModel.pickupPoint = it }, placeholder = "Pickup Address", leadingIcon = { Icon(Icons.Default.PinDrop, null, tint = actionTealColor) })
+                    LocationSelectionField(
+                        value = customerViewModel.pickupPoint, 
+                        placeholder = "Pickup Address", 
+                        icon = Icons.Default.PinDrop,
+                        isSelected = customerViewModel.locationSelectionMode == "Pickup",
+                        onSelect = { customerViewModel.locationSelectionMode = "Pickup" }
+                    )
                     Spacer(modifier = Modifier.height(8.dp))
-                    AppTextField(value = customerViewModel.destination, onValueChange = { customerViewModel.destination = it }, placeholder = "Delivery Address", leadingIcon = { Icon(Icons.Default.Flag, null, tint = actionTealColor) })
+                    LocationSelectionField(
+                        value = customerViewModel.destination, 
+                        placeholder = "Delivery Address", 
+                        icon = Icons.Default.Flag,
+                        isSelected = customerViewModel.locationSelectionMode == "Destination",
+                        onSelect = { customerViewModel.locationSelectionMode = "Destination" }
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -409,6 +436,32 @@ fun NewShipmentRouteScreen(
                         Text("Confirm Route", fontWeight = FontWeight.Bold)
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun LocationSelectionField(
+    value: String,
+    placeholder: String,
+    icon: ImageVector,
+    isSelected: Boolean,
+    onSelect: () -> Unit
+) {
+    Surface(
+        onClick = onSelect,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = if (isSelected) actionTealColor.copy(alpha = 0.05f) else Color.White,
+        border = BorderStroke(if (isSelected) 2.dp else 1.dp, if (isSelected) actionTealColor else Color.Gray.copy(alpha = 0.2f))
+    ) {
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, tint = if (isSelected) actionTealColor else Color.Gray)
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text(placeholder, fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                Text(if (value.isBlank()) "Tap to select on map" else value, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }

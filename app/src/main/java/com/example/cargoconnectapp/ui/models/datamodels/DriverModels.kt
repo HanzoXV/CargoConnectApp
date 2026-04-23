@@ -45,7 +45,52 @@ data class Package(
     val dimensions: String,
     val weight: String,
     val quantity: Int,
-    val fragile: Boolean = false
+    val fragile: Boolean = false,
+    val flammable: Boolean = false,
+    val liquid: Boolean = false,
+    val keepUpright: Boolean = false
+)
+
+data class AvailableTruck(
+    val shipmentTitle: String,
+    val route: String,
+    val amount: String,
+    val badge: TruckBadge
+)
+
+enum class TruckBadge { Shared, Full }
+
+data class DriverProfile(
+    val name: String,
+    val email: String,
+    val location: String,
+    val memberSince: String,
+    val isTopRated: Boolean,
+    val rating: Float,
+    val reviewerName: String,
+    val reviewDate: String,
+    val reviewText: String,
+    val vehicleModel: String,
+    val vehicleType: String,
+    val licensePlate: String,
+    val color: String,
+    val year: String,
+    val capacity: String,
+    val registrationNo: String
+)
+
+data class ChatContact(
+    val name: String,
+    val lastMessage: String,
+    val time: String,
+    val hasUnread: Boolean,
+    val isSupport: Boolean = false
+)
+
+data class NotificationItem(
+    val message: String,
+    val time: String,
+    val hasUnread: Boolean
 )
 
 data class CreateShipmentResponse(
