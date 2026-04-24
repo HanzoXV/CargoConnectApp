@@ -68,6 +68,22 @@ class DriverViewModel : ViewModel() {
         selectedTemplateRoute = null
     }
 
+    fun clearAllData() {
+        activeRoute = null
+        nextRoute = null
+        pastRoutes = emptyList()
+        currentCapacity = 0
+        totalCapacity = 0
+        totalDimensions = Dimensions()
+        currentDimensions = Dimensions()
+        totalStops = 0
+        completedStops = 0
+        distances.clear()
+        driverRequests = null
+        clearPlannedRoute()
+        errorMessage = null
+    }
+
     // ── Fetch functions ───────────────────────────────────────────────────────
 
     fun fetchActiveRoute(driverId: Int) {

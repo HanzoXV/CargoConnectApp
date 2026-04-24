@@ -64,4 +64,9 @@ interface ApiInterface {
         @Path("customerId") customerId: Int
     ): Response<List<BookingDto>>
 
+    @POST("api/trucks/available")
+    suspend fun getAvailableTrucks(
+        @Query("shipmentId") shipmentId: Int,
+        @Query("isStrict") isStrict: Boolean = false
+    ): Response<List<AvailabilityDto>>
 }

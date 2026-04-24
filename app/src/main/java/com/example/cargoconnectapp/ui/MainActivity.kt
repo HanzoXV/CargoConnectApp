@@ -75,7 +75,7 @@ fun AppNavigation(sessionViewModel: UserSessionViewModel,
             fadeOut(animationSpec = tween(200))
         })
     {
-        authGraph(navController, sessionViewModel, authViewModel)
+        authGraph(navController, sessionViewModel, authViewModel, driverViewModel, customerViewModel)
         driverGraph(navController, sessionViewModel, authViewModel, driverViewModel)
         customerGraph(navController, sessionViewModel, authViewModel, customerViewModel)
     }

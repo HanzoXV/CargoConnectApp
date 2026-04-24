@@ -32,6 +32,7 @@ class CustomerViewModel : ViewModel() {
     
     // Selection for Details
     var selectedBooking by mutableStateOf<CustomerBooking?>(null)
+    var selectedTruck by mutableStateOf<AvailabilityDto?>(null)
 
     // --- NEW SHIPMENT FLOW STATE ---
     
@@ -65,8 +66,40 @@ class CustomerViewModel : ViewModel() {
     var recipientContact by mutableStateOf("")
     var recipientInstructions by mutableStateOf("")
 
+    // Available Trucks
+    var availableTrucks = mutableStateListOf<AvailabilityDto>()
+
     var isLoading by mutableStateOf(false)
     var errorMessage by mutableStateOf<String?>(null)
+
+    fun clearAllData() {
+        assignedShipmentId = null
+        currentCustomerId = null
+        totalBookings = 0
+        confirmedCount = 0
+        inTransitCount = 0
+        deliveredCount = 0
+        customerBookings.clear()
+        pendingShipments.clear()
+        selectedBooking = null
+        selectedTruck = null
+        addedPackages.clear()
+        clearPackageForm()
+        pickupPoint = ""
+        destination = ""
+        pickupGeoPoint = null
+        destinationGeoPoint = null
+        selectedLocalDate = null
+        isStrictSchedule = false
+        locationSelectionMode = "Pickup"
+        recipientFirstName = ""
+        recipientLastName = ""
+        recipientCnic = ""
+        recipientContact = ""
+        recipientInstructions = ""
+        availableTrucks.clear()
+        errorMessage = null
+    }
 
     // ── API Spot 1: Dashboard Load ───────────────────────────────────────────
     fun createOrGetDraft(customerId: Int) {
@@ -222,15 +255,49 @@ class CustomerViewModel : ViewModel() {
 
                 val response = RetrofitClient.instance.completeShipment(completeRequest)
                 if (response.isSuccessful) {
-                    addedPackages.clear()
-                    assignedShipmentId = null // Clear for next use
-                    onSuccess()
+                    Log.d("CustomerViewModel", "Shipment confirmed successfully. Fetching available trucks...")
+                    
+                    // 3. Search for available trucks (passing the isStrict boolean)
+                    searchAvailableTrucks(shipmentId, isStrictSchedule, onSuccess, onError)
+                    
                 } else {
                     onError(response.errorBody()?.string() ?: "Finalization failed")
+                    isLoading = false
                 }
 
             } catch (e: Exception) {
+                Log.e("CustomerViewModel", "Finalize Exception", e)
                 onError(e.message ?: "Unknown connection error")
+                isLoading = false
+            }
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    fun searchAvailableTrucks(shipmentId: Int, isStrict: Boolean = false, onSuccess: () -> Unit, onError: (String) -> Unit) {
+
+        Log.d("CustomerViewModel", "Searching trucks for shipment: $shipmentId with isStrict: $isStrict")
+        
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.instance.getAvailableTrucks(shipmentId, isStrict)
+                if (response.isSuccessful) {
+                    availableTrucks.clear()
+                    response.body()?.let { availableTrucks.addAll(it) }
+                    Log.d("CustomerViewModel", "Found ${availableTrucks.size} available trucks")
+                    
+                    // Clear local state only after success
+                    addedPackages.clear()
+                    assignedShipmentId = null 
+                    onSuccess()
+                } else {
+                    val err = response.errorBody()?.string() ?: "Failed to fetch trucks"
+                    Log.e("CustomerViewModel", "Search trucks failed: $err")
+                    onError(err)
+                }
+            } catch (e: Exception) {
+                Log.e("CustomerViewModel", "Search trucks Exception", e)
+                onError(e.message ?: "Search failed")
             } finally {
                 isLoading = false
             }

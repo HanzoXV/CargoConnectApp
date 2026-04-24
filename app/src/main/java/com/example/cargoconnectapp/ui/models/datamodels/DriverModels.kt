@@ -153,3 +153,34 @@ data class BookingDto(
     val fromCheckpoint: String?, // Nullable because fromCp can be null
     val toCheckpoint: String?    // Nullable because toCp can be null
 )
+data class AvailabilityDto(
+    // Shipment & Request Details
+    @SerializedName("shipmentId") val shipmentId: Int,
+    @SerializedName("pickupLat") val pickupLat: Double,
+    @SerializedName("pickupLong") val pickupLong: Double,
+    @SerializedName("destLat") val destLat: Double,
+    @SerializedName("destLong") val destLong: Double,
+    @SerializedName("requestedDate") val requestedDate: String,
+    @SerializedName("isStrict") val isStrict: Boolean,
+
+    // Driver & Truck Info
+    @SerializedName("DriverId") val driverId: Int? = null,
+    @SerializedName("DriverName") val driverName: String? = null,
+    @SerializedName("ContactNo") val contactNo: String? = null,
+    @SerializedName("TruckModel") val truckModel: String? = null,
+    @SerializedName("LicenseNo") val licenseNo: String? = null,
+    @SerializedName("TotalCapacity") val totalCapacity: Double? = null,
+    @SerializedName("PickupCity") val pickupCity: String? = null,
+    @SerializedName("DestinationCity") val destinationCity: String? = null,
+
+    // Financials & Logic
+    @SerializedName("Price") val price: Double? = null,
+    @SerializedName("IsFull") val isFull: Boolean? = null,
+    @SerializedName("RouteId") val routeId: Int? = null,
+    @SerializedName("Distance") val distance: Double? = null,
+    @SerializedName("Rating") val rating: Double? = null,
+    @SerializedName("TotalReviews") val totalReviews: Int? = null,
+
+    @SerializedName("DepartureDate") val departureDate: String? = null,
+    @SerializedName("ArrivalDate") val arrivalDate: String? = null,
+)

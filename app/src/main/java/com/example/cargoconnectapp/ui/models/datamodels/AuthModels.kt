@@ -27,7 +27,7 @@ data class AuthResponse(
     @SerializedName("message") val message: String? = null,
     @SerializedName("roleID") val roleId: Int,
     @SerializedName("roleName") val roleName: String?,
-    @SerializedName("userID") val userId: Int?,
+    @SerializedName(value = "userId", alternate = ["userID"]) val userId: Int?,
     @SerializedName("roleBasedId") val roleBasedId: Int?
 )
 

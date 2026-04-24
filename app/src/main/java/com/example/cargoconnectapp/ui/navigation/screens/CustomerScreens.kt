@@ -45,7 +45,10 @@ import com.example.cargoconnectapp.ui.navigation.*
 import com.example.cargoconnectapp.ui.themes.*
 import com.example.cargoconnectapp.ui.models.map.OSMContainer
 import com.example.cargoconnectapp.ui.models.map.getAddressFromGeoPoint
+import kotlinx.coroutines.delay
 import org.osmdroid.util.GeoPoint
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 
 // ─────────────────────────────────────────────
 // CUSTOMER DASHBOARD SCREEN
@@ -524,6 +527,7 @@ fun NewShipmentRecipientScreen(
 fun FindingTruckScreen(
     task: String = "Cargo Delivery",
     tripCost: String = "Calculating...",
+    onTimeout: () -> Unit = {},
     onHomeClick: () -> Unit = {},
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
@@ -531,6 +535,11 @@ fun FindingTruckScreen(
     onProfileClick: () -> Unit = {},
     currentTab: CustomerDestination = CustomerDashboard()
 ) {
+    LaunchedEffect(Unit) {
+        delay(3000)
+        onTimeout()
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(backgroundColor)) {
         Box(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.7f).background(Color(0xFFCFE8E5)), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -571,9 +580,9 @@ fun FindingTruckScreen(
 
 @Composable
 fun DriverFoundScreen(
-    ownerName: String = "Searching...",
-    onViewDetails: () -> Unit = {},
-    onContactDriver: () -> Unit = {},
+    availableTrucks: List<AvailabilityDto> = emptyList(),
+    onSendRequest: (AvailabilityDto) -> Unit = {},
+    onShowDetails: (AvailabilityDto) -> Unit = {},
     onHomeClick: () -> Unit = {},
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
@@ -582,21 +591,176 @@ fun DriverFoundScreen(
     currentTab: CustomerDestination = CustomerDashboard()
 ) {
     Scaffold(bottomBar = { CustomerBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) }, containerColor = backgroundColor) { innerPadding ->
-        Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp).verticalScroll(rememberScrollState())) {
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp)) {
             Spacer(modifier = Modifier.height(32.dp))
-            Text("Driver Found!", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            Text("Available Trucks", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            Text("Select a driver to proceed", fontSize = 14.sp, color = Color.Gray)
             Spacer(modifier = Modifier.height(24.dp))
-            GlassCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(modifier = Modifier.size(60.dp), shape = CircleShape, color = actionTealColor.copy(alpha = 0.1f)) { Icon(Icons.Default.Person, null, modifier = Modifier.padding(16.dp), tint = actionTealColor) }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Text(ownerName, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            
+            if (availableTrucks.isEmpty()) {
+                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Text("No trucks found for this route.", color = Color.Gray, fontWeight = FontWeight.Medium)
+                }
+            } else {
+                LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+                    items(availableTrucks) { truck ->
+                        TruckSelectionCard(
+                            truck = truck,
+                            onSendRequest = { onSendRequest(truck) },
+                            onShowDetails = { onShowDetails(truck) }
+                        )
+                    }
                 }
             }
-            Spacer(modifier = Modifier.height(24.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = onViewDetails, modifier = Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(16.dp)) { Text("Profile") }
-                Button(onClick = onContactDriver, modifier = Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(16.dp)) { Text("Message") }
+        }
+    }
+}
+
+@Composable
+fun TruckSelectionCard(
+    truck: AvailabilityDto,
+    onSendRequest: () -> Unit,
+    onShowDetails: () -> Unit
+) {
+    GlassCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Surface(modifier = Modifier.size(60.dp), shape = CircleShape, color = actionTealColor.copy(alpha = 0.1f)) {
+                Icon(Icons.Default.Person, null, modifier = Modifier.padding(16.dp), tint = actionTealColor)
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(truck.driverName ?: "Unknown Driver", fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
+                    if (truck.rating != null) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Star, null, tint = Color(0xFFFFC107), modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(truck.rating.toString(), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        }
+                    }
+                }
+                Text(truck.truckModel ?: "Unknown Vehicle", fontSize = 14.sp, color = Color.Gray)
+                Text("Fare: Rs ${truck.price}", color = actionTealColor, fontWeight = FontWeight.Bold)
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedButton(onClick = onSendRequest, modifier = Modifier.weight(1f).height(40.dp), shape = RoundedCornerShape(12.dp)) {
+                Text("Send Request", fontSize = 12.sp)
+            }
+            Button(onClick = onShowDetails, modifier = Modifier.weight(1f).height(40.dp), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)) {
+                Text("Show Details", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@RequiresApi(Build.VERSION_CODES.O)
+@Composable
+fun DriverDetailsScreen(
+    truck: AvailabilityDto,
+    routePoints: List<GeoPoint> = emptyList(),
+    onSendRequest: () -> Unit = {},
+    onBack: () -> Unit = {},
+    onHomeClick: () -> Unit = {},
+    onOrdersClick: () -> Unit = {},
+    onHistoryClick: () -> Unit = {},
+    onChatClick: () -> Unit = {},
+    onProfileClick: () -> Unit = {},
+    currentTab: CustomerDestination = CustomerDashboard()
+) {
+    fun formatDate(isoString: String?): String {
+        if (isoString == null) return "N/A"
+        return try {
+            val zdt = ZonedDateTime.parse(isoString)
+            zdt.format(DateTimeFormatter.ofPattern("MMM dd, yyyy"))
+        } catch (e: Exception) {
+            try {
+                // Fallback for plain ISO local date
+                val ld = LocalDate.parse(isoString.substringBefore("T"))
+                ld.format(DateTimeFormatter.ofPattern("MMM dd, yyyy"))
+            } catch (e2: Exception) {
+                isoString // Return as-is if parsing fails
+            }
+        }
+    }
+
+    Scaffold(
+        bottomBar = { CustomerBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) },
+        containerColor = backgroundColor
+    ) { innerPadding ->
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            // Map Section (Route)
+            Box(modifier = Modifier.weight(0.4f).fillMaxWidth()) {
+                OSMContainer(points = routePoints)
+                IconButton(
+                    onClick = onBack, 
+                    modifier = Modifier.padding(16.dp).background(Color.White, CircleShape).align(Alignment.TopStart)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+                }
+            }
+
+            // Driver Info Section
+            Column(modifier = Modifier.weight(0.6f).fillMaxWidth().padding(horizontal = 24.dp).verticalScroll(rememberScrollState())) {
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column {
+                        Text("Driver Details", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+                        if (truck.rating != null) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Star, null, tint = Color(0xFFFFC107), modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(truck.rating.toString(), fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("(${truck.totalReviews ?: 0} Reviews)", color = Color.Gray, fontSize = 14.sp)
+                            }
+                        }
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(24.dp))
+                GlassCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(modifier = Modifier.size(64.dp), shape = CircleShape, color = actionTealColor.copy(alpha = 0.1f)) {
+                            Icon(Icons.Default.Person, null, modifier = Modifier.padding(16.dp), tint = actionTealColor)
+                        }
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column {
+                            Text(truck.driverName ?: "N/A", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                            Text(truck.truckModel ?: "N/A", color = Color.Gray)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Truck Information", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+                GlassCard {
+                    DetailItem(Icons.Default.LocalShipping, "Model", truck.truckModel ?: "N/A")
+                    DetailItem(Icons.Default.Badge, "License No", truck.licenseNo ?: "N/A")
+                    DetailItem(Icons.Default.Scale, "Total Capacity", if (truck.totalCapacity != null) "${truck.totalCapacity} kg" else "N/A")
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Schedule", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+                GlassCard {
+                    DetailItem(Icons.Default.DepartureBoard, "Departure", formatDate(truck.departureDate ?: truck.requestedDate))
+                    DetailItem(Icons.Default.EventAvailable, "Arrival Date", formatDate(truck.arrivalDate))
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
+                Button(
+                    onClick = onSendRequest,
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
+                ) {
+                    Text("Send Delivery Request", fontWeight = FontWeight.Bold)
+                }
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
     }
@@ -610,12 +774,13 @@ fun DriverFoundScreen(
 fun YourBookingsScreen(
     activeBookings: List<CustomerBooking> = emptyList(),
     completedBookings: List<CustomerBooking> = emptyList(),
-    pendingBookings: List<CustomerBooking> = emptyList(),
+    pendingBookings: List<ShipmentDto> = emptyList(),
     onDetailsClick: (CustomerBooking) -> Unit = {},
     onContactDriverClick: (CustomerBooking) -> Unit = {},
     onTrackClick: (CustomerBooking) -> Unit = {},
     onCancelClick: (CustomerBooking) -> Unit = {},
     onReviewClick: (CustomerBooking) -> Unit = {},
+    onFindTruckClick: (ShipmentDto) -> Unit = {},
     onHomeClick: () -> Unit = {},
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
@@ -634,10 +799,52 @@ fun YourBookingsScreen(
             LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(bottom = 32.dp)) {
                 when (selectedTab) {
                     "Active" -> { items(activeBookings) { booking -> CustomerBookingCardOverhauled(booking, onDetails = { onDetailsClick(booking) }, onContact = { onContactDriverClick(booking) }, onTrack = { onTrackClick(booking) }, onCancel = { onCancelClick(booking) }) } }
-                    "Pending" -> { items(pendingBookings) { booking -> CustomerBookingCardOverhauled(booking, onDetails = { onDetailsClick(booking) }, onContact = { onContactDriverClick(booking) }, onTrack = { onTrackClick(booking) }, onCancel = { onCancelClick(booking) }) } }
+                    "Pending" -> { 
+                        items(pendingBookings) { shipment -> 
+                            PendingShipmentCard(shipment, onFindTruck = { onFindTruckClick(shipment) }) 
+                        } 
+                    }
                     "Completed" -> { items(completedBookings) { booking -> CompletedBookingCardOverhauled(booking, onDetails = { onDetailsClick(booking) }, onReview = { onReviewClick(booking) }) } }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun PendingShipmentCard(shipment: ShipmentDto, onFindTruck: () -> Unit) {
+    GlassCard {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(modifier = Modifier.size(40.dp), shape = RoundedCornerShape(10.dp), color = actionTealColor.copy(alpha = 0.1f)) {
+                    Icon(Icons.Default.Pending, null, modifier = Modifier.padding(10.dp), tint = actionTealColor)
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text("Shipment #${shipment.shipmentId}", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text("${shipment.totalWeight} kg", fontSize = 13.sp, color = actionTealColor, fontWeight = FontWeight.Bold)
+                }
+            }
+            Surface(shape = RoundedCornerShape(8.dp), color = statusBlueColor.copy(alpha = 0.1f)) {
+                Text(shipment.status.uppercase(), modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = statusBlueColor, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        Text("Route", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+        Text("${shipment.pickupAddress} to ${shipment.deliveryAddress}", fontSize = 14.sp, color = textThemeColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Button(
+            onClick = onFindTruck,
+            modifier = Modifier.fillMaxWidth().height(40.dp),
+            shape = RoundedCornerShape(10.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
+        ) {
+            Icon(Icons.Default.Search, null, modifier = Modifier.size(14.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Find Truck", fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
     }
 }

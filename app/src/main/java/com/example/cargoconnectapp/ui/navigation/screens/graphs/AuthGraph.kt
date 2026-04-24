@@ -20,13 +20,20 @@ import com.example.cargoconnectapp.ui.models.destinations.RegisterStep
 import com.example.cargoconnectapp.ui.models.destinations.Splash
 import com.example.cargoconnectapp.ui.models.helpermodels.UserRoles
 import com.example.cargoconnectapp.ui.models.viewmodels.AuthViewModel
+import com.example.cargoconnectapp.ui.models.viewmodels.CustomerViewModel
+import com.example.cargoconnectapp.ui.models.viewmodels.DriverViewModel
 import com.example.cargoconnectapp.ui.models.viewmodels.UserSessionViewModel
 import com.example.cargoconnectapp.ui.navigation.screens.*
 
 @RequiresApi(Build.VERSION_CODES.O)
 @androidx.annotation.RequiresPermission(allOf = [android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION])
-fun NavGraphBuilder.authGraph (navController: NavHostController,
-                               session: UserSessionViewModel, authViewModel: AuthViewModel) {
+fun NavGraphBuilder.authGraph (
+    navController: NavHostController,
+    session: UserSessionViewModel, 
+    authViewModel: AuthViewModel,
+    driverViewModel: DriverViewModel,
+    customerViewModel: CustomerViewModel
+) {
     composable<Splash> {
         SplashScreen(
             onNavigateToLogin = {
@@ -44,6 +51,8 @@ fun NavGraphBuilder.authGraph (navController: NavHostController,
                     authViewModel.errorMessage = "Email or password cannot be empty."
                 } else {
                     authViewModel.login {
+                        driverViewModel.clearAllData()
+                        customerViewModel.clearAllData()
                         Log.d("AUTH_DEBUG", "Role after login: ${session.userRole}")
                         when (session.userRole) {
                             UserRoles.Driver -> navController.navigate(DriverDashboard(DriverDashboardPage.TripInfo)) {
@@ -108,6 +117,7 @@ fun NavGraphBuilder.authGraph (navController: NavHostController,
                     onNext = {
                         if (authViewModel.userRole == UserRoles.Customer) {
                             authViewModel.registerUser(context = context) {
+                                customerViewModel.clearAllData()
                                 navController.navigate(Login)
                             }
                         } else {
@@ -126,6 +136,7 @@ fun NavGraphBuilder.authGraph (navController: NavHostController,
                         context = LocalContext.current,
                         onNext = {
                             authViewModel.registerDriver(context = context) {
+                                driverViewModel.clearAllData()
                                 navController.navigate(DriverDashboard(DriverDashboardPage.TripInfo)) {
                                     popUpTo(Splash) { inclusive = true }
                                 }
@@ -141,6 +152,7 @@ fun NavGraphBuilder.authGraph (navController: NavHostController,
                         onNext = {
                             authViewModel.registerDriver(context = context)
                             {
+                                customerViewModel.clearAllData()
                                 navController.navigate(Login) {
                                     popUpTo(Splash) { inclusive = true }
                                 }

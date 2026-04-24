@@ -15,6 +15,7 @@ import com.example.cargoconnectapp.ui.models.viewmodels.AuthViewModel
 import com.example.cargoconnectapp.ui.models.viewmodels.CustomerViewModel
 import com.example.cargoconnectapp.ui.models.viewmodels.UserSessionViewModel
 import com.example.cargoconnectapp.ui.navigation.screens.*
+import org.osmdroid.util.GeoPoint
 
 @RequiresApi(Build.VERSION_CODES.O)
 fun NavGraphBuilder.customerGraph(
@@ -89,6 +90,7 @@ fun NavGraphBuilder.customerGraph(
             CustomerDashboardPage.Tracking -> {
                 FindingTruckScreen(
                     currentTab     = args.tab,
+                    onTimeout      = { navController.popBackStack() }, 
                     onHomeClick    = args.onHomeClick,
                     onOrdersClick  = args.onOrdersClick,
                     onHistoryClick = args.onHistoryClick,
@@ -100,7 +102,7 @@ fun NavGraphBuilder.customerGraph(
     }
 
     // ── NEW SHIPMENT ──
-    composable<CustomerNewShipment> {
+    composable<CustomerNewShipment> @androidx.annotation.RequiresPermission(allOf = [android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION]) {
         val page = it.toRoute<CustomerNewShipment>().page
         val args = sharedArgs()
         when (page) {
@@ -172,6 +174,11 @@ fun NavGraphBuilder.customerGraph(
             CustomerNewShipmentPage.FindingTruck -> {
                 FindingTruckScreen(
                     currentTab     = args.tab,
+                    onTimeout      = { 
+                        navController.navigate(CustomerNewShipment(CustomerNewShipmentPage.AvailableTrucks)) {
+                            popUpTo(CustomerNewShipment(CustomerNewShipmentPage.FindingTruck)) { inclusive = true }
+                        }
+                    },
                     onHomeClick    = args.onHomeClick,
                     onOrdersClick  = args.onOrdersClick,
                     onHistoryClick = args.onHistoryClick,
@@ -179,18 +186,40 @@ fun NavGraphBuilder.customerGraph(
                     onProfileClick = args.onProfileClick
                 )
             }
-            CustomerNewShipmentPage.AvailableTrucks -> { }
-            CustomerNewShipmentPage.TruckDetails -> {
+            CustomerNewShipmentPage.AvailableTrucks -> { 
                 DriverFoundScreen(
+                    availableTrucks  = customerViewModel.availableTrucks,
                     currentTab       = args.tab,
-                    onViewDetails    = { },
-                    onContactDriver  = { navController.navigate(CustomerChat(CustomerChatPage.Details)) },
+                    onSendRequest    = { truck -> /* Send request logic */ },
+                    onShowDetails    = { truck -> 
+                        customerViewModel.selectedTruck = truck
+                        navController.navigate(CustomerNewShipment(CustomerNewShipmentPage.TruckDetails))
+                    },
                     onHomeClick      = args.onHomeClick,
                     onOrdersClick    = args.onOrdersClick,
                     onHistoryClick   = args.onHistoryClick,
                     onChatClick      = args.onChatClick,
                     onProfileClick   = args.onProfileClick
                 )
+            }
+            CustomerNewShipmentPage.TruckDetails -> {
+                customerViewModel.selectedTruck?.let { truck ->
+                    DriverDetailsScreen(
+                        truck            = truck,
+                        routePoints      = listOf(
+                            GeoPoint(truck.pickupLat, truck.pickupLong),
+                            GeoPoint(truck.destLat, truck.destLong)
+                        ),
+                        onSendRequest    = { /* Send request logic */ },
+                        onBack           = { navController.popBackStack() },
+                        currentTab       = args.tab,
+                        onHomeClick      = args.onHomeClick,
+                        onOrdersClick    = args.onOrdersClick,
+                        onHistoryClick   = args.onHistoryClick,
+                        onChatClick      = args.onChatClick,
+                        onProfileClick   = args.onProfileClick
+                    )
+                }
             }
         }
     }
@@ -221,15 +250,6 @@ fun NavGraphBuilder.customerGraph(
                         )
                     }
 
-                val pendingList = customerViewModel.pendingShipments.map { dto ->
-                    CustomerBooking(
-                        title = "Shipment #${dto.shipmentId}",
-                        route = "${dto.pickupAddress} to ${dto.deliveryAddress}",
-                        amount = "",
-                        status = BookingStatus.Confirmed 
-                    )
-                }
-
                 val completedList = customerViewModel.customerBookings
                     .filter { it.status.lowercase() in listOf("completed", "delivered", "closed") }
                     .map { dto ->
@@ -249,13 +269,22 @@ fun NavGraphBuilder.customerGraph(
                     onChatClick          = args.onChatClick,
                     onProfileClick       = args.onProfileClick,
                     activeBookings       = activeList,
-                    pendingBookings      = pendingList,
+                    pendingBookings      = customerViewModel.pendingShipments,
                     completedBookings    = completedList,
                     onDetailsClick       = { navController.navigate(CustomerBookings(CustomerBookingPage.Details)) },
                     onContactDriverClick = { navController.navigate(CustomerChat(CustomerChatPage.Details)) },
                     onTrackClick         = { navController.navigate(CustomerDashboard(CustomerDashboardPage.Tracking)) },
                     onCancelClick        = { navController.navigate(CustomerBookings(CustomerBookingPage.CancelBooking)) },
-                    onReviewClick        = { }
+                    onReviewClick        = { },
+                    onFindTruckClick     = { shipment ->
+                        customerViewModel.searchAvailableTrucks(
+                            shipmentId = shipment.shipmentId,
+                            onSuccess = {
+                                navController.navigate(CustomerNewShipment(CustomerNewShipmentPage.FindingTruck))
+                            },
+                            onError = { }
+                        )
+                    }
                 )
             }
             CustomerBookingPage.Details -> {

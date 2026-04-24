@@ -120,13 +120,32 @@ class AuthViewModel (private val sessionViewModel: UserSessionViewModel) : ViewM
         return true
     }
 
+    private suspend fun syncSession(id: Int, roleBasedId: Int, roleName: String?): Boolean {
+        val roleEnum = mapRoleNameToEnum(roleName)
+        val profileResponse = RetrofitClient.instance.getUserData(UserDataRequest(userId = id))
+        
+        return if (profileResponse.isSuccessful && profileResponse.body() != null) {
+            sessionViewModel.updateSession(
+                id = id,
+                roleBasedId = roleBasedId,
+                email = userEmail,
+                role = roleEnum,
+                userData = profileResponse.body()!!
+            )
+            true
+        } else {
+            errorMessage = "Account verified, but profile sync failed. Please try again."
+            sessionViewModel.clearSession()
+            false
+        }
+    }
+
     fun login(onSuccess: (String) -> Unit) {
         viewModelScope.launch {
             isLoading = true
             errorMessage = null
 
             try {
-                // Call 1: Login
                 val loginResponse = RetrofitClient.instance.loginUser(
                     LoginRequest(userEmail, hashPassword(userPassword))
                 )
@@ -134,41 +153,22 @@ class AuthViewModel (private val sessionViewModel: UserSessionViewModel) : ViewM
                 if (loginResponse.isSuccessful) {
                     val loginBody = loginResponse.body()
                     if (loginBody == null) {
-                        Log.e("AUTH_DEBUG", "Login response body is null — raw: ${loginResponse.raw()}")
                         errorMessage = "Server response error"
                         return@launch
                     }
 
-                    Log.d("AUTH_DEBUG", "Login OK — userId=${loginBody.userId} roleName=${loginBody.roleName}")
-
                     val id = loginBody.userId ?: -1
                     val roleBasedId = loginBody.roleBasedId ?: -1
-                    val roleName = loginBody.roleName ?: ""
-                    val roleEnum = mapRoleNameToEnum(roleName)
+                    val roleName = loginBody.roleName
 
-                    // Call 2: Profile Fetch
-                    val profileResponse = RetrofitClient.instance.getUserData(UserDataRequest(userId = id))
-                    
-                    if (profileResponse.isSuccessful && profileResponse.body() != null) {
-                        sessionViewModel.updateSession(
-                            id = id,
-                            roleBasedId = roleBasedId,
-                            email = userEmail,
-                            role = roleEnum,
-                            userData = profileResponse.body()!!
-                        )
-                        onSuccess(roleName)
-                    } else {
-                        errorMessage = "Account verified, but profile sync failed. Please try again."
-                        sessionViewModel.clearSession()
+                    if (syncSession(id, roleBasedId, roleName)) {
+                        onSuccess(roleName ?: "")
                     }
                 } else {
-                    Log.d("AUTH_DEBUG", "Login FAILED — code=${loginResponse.code()} error=${loginResponse.errorBody()?.string()}")
                     errorMessage = "Invalid email or password"
                 }
             } catch (e: Exception) {
                 errorMessage = "Connection Error: Please check your internet."
-                Log.e("CONNECTION_ERROR", "MESSAGE: ${e.message}")
                 e.printStackTrace()
             } finally {
                 isLoading = false
@@ -204,8 +204,13 @@ class AuthViewModel (private val sessionViewModel: UserSessionViewModel) : ViewM
                 val response = RetrofitClient.instance.registerUser(request)
                 if (response.isSuccessful && response.body() != null) {
                     val body = response.body()!!
-                    userId = body.userId ?: -1
-                    onSuccess(body.roleName ?: "")
+                    val id = body.userId ?: -1
+                    val roleBasedId = body.roleBasedId ?: -1
+                    val roleName = body.roleName
+
+                    if (syncSession(id, roleBasedId, roleName)) {
+                        onSuccess(roleName ?: "")
+                    }
                 } else {
                     errorMessage = response.errorBody()?.string() ?: "Registration failed"
                 }
@@ -266,8 +271,13 @@ class AuthViewModel (private val sessionViewModel: UserSessionViewModel) : ViewM
                 val response = RetrofitClient.instance.registerUser(request)
                 if (response.isSuccessful && response.body() != null) {
                     val body = response.body()!!
-                    userId = body.userId ?: -1
-                    onSuccess(body.roleName ?: "")
+                    val id = body.userId ?: -1
+                    val roleBasedId = body.roleBasedId ?: -1
+                    val roleName = body.roleName
+
+                    if (syncSession(id, roleBasedId, roleName)) {
+                        onSuccess(roleName ?: "")
+                    }
                 } else {
                     errorMessage = response.errorBody()?.string() ?: "Registration failed"
                 }
@@ -306,6 +316,7 @@ class AuthViewModel (private val sessionViewModel: UserSessionViewModel) : ViewM
 // --- Utility ---
 
     fun logout() {
+        sessionViewModel.clearSession()
         userId = -1
         userEmail = ""
         userPassword = ""
@@ -340,7 +351,6 @@ class AuthViewModel (private val sessionViewModel: UserSessionViewModel) : ViewM
 
     private fun mapRoleNameToEnum(roleName: String?): UserRoles {
         val lower = roleName?.lowercase()
-        Log.d("AUTH_DEBUG", "mapRoleNameToEnum input: '$roleName' lowered: '$lower'")
         return when (lower) {
             "driver" -> UserRoles.Driver
             "customer" -> UserRoles.Customer
