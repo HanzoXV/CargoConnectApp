@@ -44,6 +44,7 @@ import com.example.cargoconnectapp.ui.models.map.OSMContainer
 import com.example.cargoconnectapp.ui.models.map.getAddressFromGeoPoint
 import org.osmdroid.util.GeoPoint
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import com.example.cargoconnectapp.ui.models.viewmodels.UserSessionViewModel
 import java.time.LocalDate
 import java.time.YearMonth
 
@@ -1066,7 +1067,6 @@ fun EnhancedNotificationCard(notif: NotificationItem) {
 @Composable
 fun ProfileScreen(
     fullName: String = "",
-    profileImageUrl: String? = null,
     rating: Float = 4.8f,
     isSwitchedToCustomer: Boolean = false,
     onYourInformationClick: () -> Unit = {},
@@ -1078,7 +1078,8 @@ fun ProfileScreen(
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
     onProfileClick: () -> Unit = {},
-    currentTab: DriverDestination = DriverDashboard()
+    currentTab: DriverDestination = DriverDashboard(),
+    session: UserSessionViewModel
 ) {
     Scaffold(
         bottomBar = {
@@ -1121,8 +1122,8 @@ fun ProfileScreen(
                             shape = CircleShape,
                             color = Color.White
                         ) {
-                            if (profileImageUrl != null) {
-                                AsyncImage(model = profileImageUrl, contentDescription = null, contentScale = ContentScale.Crop)
+                            if (session.userProfileImageUrl != null) {
+                                AsyncImage(model = session.userProfileImageUrl, contentDescription = null, contentScale = ContentScale.Crop)
                             } else {
                                 Icon(Icons.Default.Person, null, modifier = Modifier.padding(24.dp), tint = actionTealColor)
                             }
@@ -1159,7 +1160,7 @@ fun ProfileScreen(
                         Icon(Icons.Default.SwapHoriz, null, tint = statusBlueColor)
                         Spacer(modifier = Modifier.width(16.dp))
                         Text("Switch to Customer Mode", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
-                        Switch(checked = isSwitchedToCustomer, onCheckedChange = onSwitchRoleToggle)
+                        Switch(checked = isSwitchedToCustomer, onCheckedChange = { onSwitchRoleToggle(it) })
                     }
                 }
                 
@@ -1353,8 +1354,8 @@ fun ActivateRouteScreen(
     activeRoute: String? = "No Active Route",
     activeVia: String? = null,
     nextRoute: String? = "No Next Route",
-    profileImageUrl: String? = null,
     onTapToChange: () -> Unit = {},
+    onTapToChangeUpcoming: () -> Unit = {},
     onHomeClick: () -> Unit = {},
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
@@ -1385,11 +1386,14 @@ fun ActivateRouteScreen(
             Spacer(modifier = Modifier.height(24.dp))
             Text("Upcoming Route", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
             Spacer(modifier = Modifier.height(8.dp))
-            GlassCard {
+            GlassCard(modifier = Modifier.clickable { onTapToChangeUpcoming() }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Schedule, null, tint = Color.Gray)
+                    Icon(Icons.Default.Schedule, null, tint = if (nextRoute == null) Color.Gray else actionTealColor)
                     Spacer(modifier = Modifier.width(16.dp))
-                    Text(nextRoute ?: "No route scheduled", fontWeight = FontWeight.Medium, color = Color.Gray)
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(nextRoute ?: "No route scheduled", fontWeight = FontWeight.Medium, color = if (nextRoute == null) Color.Gray else textThemeColor)
+                    }
+                    Text(if (nextRoute == null) "ADD" else "CHANGE", fontSize = 12.sp, color = actionTealColor, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1414,20 +1418,28 @@ fun SelectRouteScreen(
             Text("Select Route", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
             Spacer(modifier = Modifier.height(24.dp))
             
-            LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(savedRoutes.size) { index ->
-                    GlassCard(modifier = Modifier.clickable { onRouteSelected(index) }) {
-                        Text(savedRoutes[index].first, fontWeight = FontWeight.Bold)
-                        savedRoutes[index].second?.let { Text(it, fontSize = 12.sp, color = Color.Gray) }
+            if (savedRoutes.isEmpty()) {
+                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Text("No routes found. Create one first.", color = Color.Gray, fontWeight = FontWeight.Medium)
+                }
+            } else {
+                LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(savedRoutes.size) { index ->
+                        GlassCard(modifier = Modifier.clickable { onRouteSelected(index) }) {
+                            Text(savedRoutes[index].first, fontWeight = FontWeight.Bold)
+                            savedRoutes[index].second?.let { Text(it, fontSize = 12.sp, color = Color.Gray) }
+                        }
                     }
                 }
             }
             
-            Button(onClick = onCreateNewRoute, modifier = Modifier.fillMaxWidth().height(56.dp).padding(vertical = 16.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)) {
+            Spacer(modifier = Modifier.height(24.dp))
+            Button(onClick = onCreateNewRoute, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)) {
                 Icon(Icons.Default.Add, null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Create New Route")
             }
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
@@ -1482,6 +1494,8 @@ fun CreateRouteStep2(
 ) {
     var departureDate by remember { mutableStateOf<LocalDate?>(null) }
     var arrivalDate by remember { mutableStateOf<LocalDate?>(null) }
+    var departureMonth by remember { mutableStateOf(YearMonth.now()) }
+    var arrivalMonth by remember { mutableStateOf(YearMonth.now()) }
 
     Scaffold(bottomBar = { DashboardBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) }, containerColor = backgroundColor) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp).verticalScroll(rememberScrollState())) {
@@ -1490,11 +1504,11 @@ fun CreateRouteStep2(
             Spacer(modifier = Modifier.height(24.dp))
             
             Text("Departure Date", fontWeight = FontWeight.Bold)
-            CalendarView(currentMonth = YearMonth.now(), selectedDate = departureDate, minDate = minDate, onDateSelected = { departureDate = it }, onMonthChanged = {})
+            CalendarView(currentMonth = departureMonth, selectedDate = departureDate, minDate = minDate, onDateSelected = { departureDate = it }, onMonthChanged = { departureMonth = it })
             
             Spacer(modifier = Modifier.height(24.dp))
             Text("Arrival Date", fontWeight = FontWeight.Bold)
-            CalendarView(currentMonth = YearMonth.now(), selectedDate = arrivalDate, minDate = departureDate ?: minDate, onDateSelected = { arrivalDate = it }, onMonthChanged = {})
+            CalendarView(currentMonth = arrivalMonth, selectedDate = arrivalDate, minDate = departureDate ?: minDate, onDateSelected = { arrivalDate = it }, onMonthChanged = { arrivalMonth = it })
             
             Spacer(modifier = Modifier.height(32.dp))
             Button(onClick = { onNext(departureDate!!, arrivalDate!!) }, enabled = departureDate != null && arrivalDate != null, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) {
@@ -1552,6 +1566,7 @@ fun DeliveryDelayScreen(
 ) {
     var reason by remember { mutableStateOf("") }
     var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
+    var currentMonth by remember { mutableStateOf(YearMonth.now()) }
 
     Scaffold(bottomBar = { DashboardBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) }, containerColor = backgroundColor) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp).verticalScroll(rememberScrollState())) {
@@ -1563,7 +1578,7 @@ fun DeliveryDelayScreen(
                 TextField(value = reason, onValueChange = { reason = it }, placeholder = { Text("Reason for delay") }, modifier = Modifier.fillMaxWidth())
             }
             Spacer(modifier = Modifier.height(24.dp))
-            CalendarView(currentMonth = YearMonth.now(), selectedDate = selectedDate, onDateSelected = { selectedDate = it }, onMonthChanged = {})
+            CalendarView(currentMonth = currentMonth, selectedDate = selectedDate, onDateSelected = { selectedDate = it }, onMonthChanged = { currentMonth = it })
             
             Spacer(modifier = Modifier.height(32.dp))
             Button(onClick = { onConfirmDelay(selectedDate, reason, 12, true) }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) {

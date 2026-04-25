@@ -66,7 +66,8 @@ interface ApiInterface {
 
     @POST("api/trucks/available")
     suspend fun getAvailableTrucks(
-        @Query("shipmentId") shipmentId: Int,
-        @Query("isStrict") isStrict: Boolean = false
+        @Query("shipmentId") shipmentId: Int
     ): Response<List<AvailabilityDto>>
+
+
 }

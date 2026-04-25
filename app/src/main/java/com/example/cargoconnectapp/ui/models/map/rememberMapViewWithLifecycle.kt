@@ -34,6 +34,8 @@ import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import java.util.Locale
 import androidx.core.graphics.toColorInt
+import org.osmdroid.views.overlay.Polygon
+import org.osmdroid.views.overlay.Overlay
 
 @Composable
 fun rememberMapViewWithLifecycle(): MapView {
@@ -69,6 +71,8 @@ fun rememberMapViewWithLifecycle(): MapView {
 fun OSMContainer(
     points: List<GeoPoint>,
     routeFromUser: Boolean = false,
+    radiusInMeters: Double? = null,
+    circleCenter: GeoPoint? = null,
     onDistancesCalculated: (List<Double>) -> Unit = {},
     onMapClick: (GeoPoint) -> Unit = {},
     onMapLongClick: (GeoPoint) -> Unit = {}
@@ -79,13 +83,14 @@ fun OSMContainer(
     var capturedUserLocation by remember { mutableStateOf<GeoPoint?>(null) }
     var hasInitiallyCentered by remember { mutableStateOf(false) }
 
-    // Effect 1: Redraw Route & Markers
-    LaunchedEffect(points, capturedUserLocation == null) {
+    // Effect 1: Redraw Route & Markers & Circle
+    LaunchedEffect(points, capturedUserLocation == null, radiusInMeters, circleCenter) {
         val userLoc = capturedUserLocation
         
         mapView.overlays.removeAll { overlay ->
             overlay is org.osmdroid.views.overlay.Polyline ||
-                    (overlay is org.osmdroid.views.overlay.Marker && overlay.id != "user_location_overlay")
+                    (overlay is org.osmdroid.views.overlay.Marker && overlay.id != "user_location_overlay") ||
+                    overlay is Polygon
         }
 
         if (points.isNotEmpty()) {
@@ -104,6 +109,18 @@ fun OSMContainer(
                 drawFullRoute(context, mapView, waypoints as List<GeoPoint>)
             }
         }
+
+        // Draw Circle if center and radius provided
+        if (circleCenter != null && radiusInMeters != null) {
+            val circle = Polygon.pointsAsCircle(circleCenter, radiusInMeters)
+            val polygon = Polygon(mapView)
+            polygon.points = circle
+            polygon.fillPaint.color = 0x330000FF.toInt() // Transparent Blue
+            polygon.outlinePaint.color = 0xFF0000FF.toInt() // Blue
+            polygon.outlinePaint.strokeWidth = 2f
+            mapView.overlays.add(polygon)
+        }
+
         mapView.invalidate()
     }
 
@@ -135,10 +152,10 @@ fun OSMContainer(
                 val locationOverlay = MyLocationNewOverlay(GpsMyLocationProvider(context), this).apply {
                     enableMyLocation()
                     runOnFirstFix {
-                        capturedUserLocation = myLocation
-                        // Ensure we update state on main thread for UI changes
+                        val location = myLocation
+                        capturedUserLocation = location
                         (context as? android.app.Activity)?.runOnUiThread {
-                            capturedUserLocation = myLocation
+                            capturedUserLocation = location
                         }
                     }
                 }

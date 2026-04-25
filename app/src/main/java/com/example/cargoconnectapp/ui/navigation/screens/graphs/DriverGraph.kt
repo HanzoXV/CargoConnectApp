@@ -171,7 +171,6 @@ fun NavGraphBuilder.driverGraph(
             DriverProfilePage.Main -> {
                 ProfileScreen(
                     fullName               = session.userFullName,
-                    profileImageUrl        = session.userProfileImageUrl,
                     currentTab             = session.currentDriverTab,
                     onHomeClick            = { navController.navigateTab(DriverDashboard()) },
                     onOrdersClick          = { navController.navigateTab(DriverShipmentRequest()) },
@@ -180,7 +179,8 @@ fun NavGraphBuilder.driverGraph(
                     onProfileClick         = { navController.navigateTab(DriverProfileScreen()) },
                     onYourInformationClick = { navController.navigate(DriverProfileScreen(DriverProfilePage.YourInformation)) },
                     onActivateRouteClick   = { navController.navigate(DriverProfileScreen(DriverProfilePage.ActivateRoute)) },
-                    onLogoutClick          = { authViewModel.logout() }
+                    onLogoutClick          = { authViewModel.logout()},
+                    session = session
                 )
             }
             DriverProfilePage.YourInformation -> {
@@ -210,6 +210,7 @@ fun NavGraphBuilder.driverGraph(
                     nextRoute      = formatRouteLabel(driverViewModel.nextRoute),
                     currentTab     = session.currentDriverTab,
                     onTapToChange  = { navController.navigate(DriverProfileScreen(DriverProfilePage.SelectRoute)) },
+                    onTapToChangeUpcoming = { navController.navigate(DriverProfileScreen(DriverProfilePage.SelectRoute)) },
                     onHomeClick    = { navController.navigateTab(DriverDashboard()) },
                     onOrdersClick  = { navController.navigateTab(DriverShipmentRequest()) },
                     onHistoryClick = { navController.navigateTab(DriverDeliveries()) },
@@ -258,18 +259,19 @@ fun NavGraphBuilder.driverGraph(
             DriverProfilePage.EstimatedDelivery -> {
                 val activeEnd = driverViewModel.activeRoute?.arrivalDate?.let { 
                     try {
-                        LocalDate.parse(it)
+                        if (it.contains("T")) LocalDateTime.parse(it).toLocalDate()
+                        else LocalDate.parse(it)
                     } catch (e: Exception) {
-                        try {
-                            LocalDateTime.parse(it).toLocalDate()
-                        } catch (e2: Exception) {
-                            null
-                        }
+                        null
                     }
                 }
-                val minDate = if (driverViewModel.activeRoute != null && driverViewModel.selectedTemplateRoute != null) {
-                    activeEnd
-                } else null
+                
+                // minDate is either active route's end or today
+                val minDate = if (driverViewModel.activeRoute != null) {
+                    activeEnd?.plusDays(1) ?: LocalDate.now()
+                } else {
+                    LocalDate.now()
+                }
 
                 CreateRouteStep2(
                     minDate        = minDate,

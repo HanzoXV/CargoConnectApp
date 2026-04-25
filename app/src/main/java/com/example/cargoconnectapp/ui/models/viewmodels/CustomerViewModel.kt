@@ -4,6 +4,8 @@ import android.os.Build
 import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -71,6 +73,8 @@ class CustomerViewModel : ViewModel() {
 
     var isLoading by mutableStateOf(false)
     var errorMessage by mutableStateOf<String?>(null)
+
+    var radius by mutableDoubleStateOf(1.0)
 
     fun clearAllData() {
         assignedShipmentId = null
@@ -280,7 +284,7 @@ class CustomerViewModel : ViewModel() {
         
         viewModelScope.launch {
             try {
-                val response = RetrofitClient.instance.getAvailableTrucks(shipmentId, isStrict)
+                val response = RetrofitClient.instance.getAvailableTrucks(shipmentId)
                 if (response.isSuccessful) {
                     availableTrucks.clear()
                     response.body()?.let { availableTrucks.addAll(it) }

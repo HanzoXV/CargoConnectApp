@@ -1,11 +1,13 @@
 package com.example.cargoconnectapp.ui.models.viewmodels
 
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
+import com.example.cargoconnectapp.data.RetrofitClient
 import com.example.cargoconnectapp.ui.models.datamodels.UserDataResponse
 import com.example.cargoconnectapp.ui.models.destinations.CustomerDashboard
 import com.example.cargoconnectapp.ui.models.destinations.CustomerDestination
@@ -54,6 +56,7 @@ class UserSessionViewModel : ViewModel() {
         id: Int,
         roleBasedId: Int,
         email: String,
+        profileImage: String,
         role: UserRoles,
         userData: UserDataResponse
     ) {
@@ -66,7 +69,16 @@ class UserSessionViewModel : ViewModel() {
         this.userLicenseNo = userData.licenseNo ?: ""
         this.userStreetAddress = userData.streetNo ?: ""
         this.userCity = userData.city ?: ""
-        this.userProfileImageUrl = userData.profileImageUrl
+        
+        // Centralized URL reconstruction: IP + relative path
+        this.userProfileImageUrl = if (profileImage != "n/a" && profileImage.isNotBlank()) {
+            when {
+                profileImage.startsWith("http") -> profileImage
+                profileImage.startsWith("api/") -> RetrofitClient.BASE_URL + profileImage
+                profileImage.startsWith("/api/") -> RetrofitClient.BASE_URL + profileImage.substring(1)
+                else -> RetrofitClient.BASE_URL + profileImage
+            }
+        } else null
     }
 
     fun clearSession() {
@@ -74,6 +86,7 @@ class UserSessionViewModel : ViewModel() {
         roleBasedId = -1
         userEmail = "Not Specified"
         userRole = UserRoles.NotSpecified
+        userProfileImageUrl = null
         // ... clear other fields as needed
     }
 }

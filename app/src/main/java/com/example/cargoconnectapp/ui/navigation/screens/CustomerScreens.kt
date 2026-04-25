@@ -45,6 +45,7 @@ import com.example.cargoconnectapp.ui.navigation.*
 import com.example.cargoconnectapp.ui.themes.*
 import com.example.cargoconnectapp.ui.models.map.OSMContainer
 import com.example.cargoconnectapp.ui.models.map.getAddressFromGeoPoint
+import com.example.cargoconnectapp.data.RetrofitClient
 import kotlinx.coroutines.delay
 import org.osmdroid.util.GeoPoint
 import java.time.ZonedDateTime
@@ -351,13 +352,15 @@ fun NewShipmentRouteScreen(
     ) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             // Map Section
-            Box(modifier = Modifier.weight(0.4f).fillMaxWidth()) {
+            Box(modifier = Modifier.weight(0.5f).fillMaxWidth()) {
                 val routePoints = mutableListOf<GeoPoint>()
                 customerViewModel.pickupGeoPoint?.let { routePoints.add(it) }
                 customerViewModel.destinationGeoPoint?.let { routePoints.add(it) }
                 
                 OSMContainer(
                     points = routePoints,
+                    circleCenter = customerViewModel.pickupGeoPoint,
+                    radiusInMeters = customerViewModel.radius,
                     onMapClick = { geoPoint ->
                         if (customerViewModel.locationSelectionMode == "Pickup") {
                             customerViewModel.pickupGeoPoint = geoPoint
@@ -385,11 +388,27 @@ fun NewShipmentRouteScreen(
                 }
             }
 
-            // Form Section
-            Column(modifier = Modifier.weight(0.6f).fillMaxWidth()) {
-                Column(modifier = Modifier.padding(horizontal = 24.dp)) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("Route & Schedule", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+            // Controls Section (Radius Slider & Form)
+            Column(modifier = Modifier.weight(0.5f).fillMaxWidth()) {
+                // Radius Slider
+                Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
+                    Text(
+                        "Search Radius: ${String.format("%.1f", customerViewModel.radius / 1000)} KM", 
+                        fontSize = 14.sp, 
+                        fontWeight = FontWeight.Bold,
+                        color = textThemeColor
+                    )
+                    Slider(
+                        value = customerViewModel.radius.toFloat(),
+                        onValueChange = { customerViewModel.radius = it.toDouble() },
+                        valueRange = 100f..10000f,
+                        colors = SliderDefaults.colors(thumbColor = actionTealColor, activeTrackColor = actionTealColor)
+                    )
+                }
+
+                // Location Fields
+                Column(modifier = Modifier.padding(horizontal = 24.dp).weight(1f).verticalScroll(rememberScrollState())) {
+                    Text("Route & Schedule", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
                     Spacer(modifier = Modifier.height(12.dp))
                     
                     LocationSelectionField(
@@ -407,11 +426,8 @@ fun NewShipmentRouteScreen(
                         isSelected = customerViewModel.locationSelectionMode == "Destination",
                         onSelect = { customerViewModel.locationSelectionMode = "Destination" }
                     )
-                }
 
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                Column(modifier = Modifier.weight(1f).padding(horizontal = 24.dp).verticalScroll(rememberScrollState())) {
+                    Spacer(modifier = Modifier.height(16.dp))
                     Text("Preferred Date", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     Spacer(modifier = Modifier.height(8.dp))
                     CalendarView(currentMonth = currentMonth, selectedDate = customerViewModel.selectedLocalDate, onDateSelected = { customerViewModel.selectedLocalDate = it }, onMonthChanged = { currentMonth = it })
@@ -723,7 +739,7 @@ fun DriverDetailsScreen(
                 Spacer(modifier = Modifier.height(24.dp))
                 GlassCard {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(modifier = Modifier.size(64.dp), shape = CircleShape, color = actionTealColor.copy(alpha = 0.1f)) {
+                        Surface(modifier = Modifier.size(64.dp), shape = CircleShape, color = Color.White) {
                             Icon(Icons.Default.Person, null, modifier = Modifier.padding(16.dp), tint = actionTealColor)
                         }
                         Spacer(modifier = Modifier.width(16.dp))
@@ -898,7 +914,23 @@ fun CustomerProfileScreen(
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(modifier = Modifier.fillMaxWidth().height(260.dp).drawBehind { drawCircle(Brush.radialGradient(listOf(actionTealColor.copy(alpha = 0.15f), Color.Transparent)), radius = size.width, center = Offset(size.width/2, 0f)) }, contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Surface(modifier = Modifier.size(110.dp).shadow(12.dp, CircleShape), shape = CircleShape, color = Color.White) { Icon(Icons.Default.Person, null, modifier = Modifier.padding(24.dp), tint = actionTealColor) }
+                    Surface(modifier = Modifier.size(110.dp).shadow(12.dp, CircleShape), shape = CircleShape, color = Color.White) { 
+                        val fullImageUrl = if (profileImageUrl?.startsWith("api/uploads/") == true) {
+                            RetrofitClient.BASE_URL + profileImageUrl
+                        } else {
+                            profileImageUrl
+                        }
+                        if (fullImageUrl != null) {
+                            AsyncImage(
+                                model = fullImageUrl,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Icon(Icons.Default.Person, null, modifier = Modifier.padding(24.dp), tint = actionTealColor) 
+                        }
+                    }
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(fullName, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
                 }
@@ -915,7 +947,6 @@ fun CustomerProfileScreen(
 @Composable
 fun CancelBookingScreen(
     onBack: () -> Unit = {},
-    onGetInContact: () -> Unit = {},
     onConfirmCancel: (String) -> Unit = {},
     onHomeClick: () -> Unit = {},
     onOrdersClick: () -> Unit = {},
@@ -934,8 +965,6 @@ fun CancelBookingScreen(
             Spacer(modifier = Modifier.height(24.dp))
             GlassCard { TextField(value = reason, onValueChange = { reason = it }, placeholder = { Text("Cancellation Reason...") }, modifier = Modifier.fillMaxWidth().height(120.dp), colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent)) }
             Spacer(modifier = Modifier.height(32.dp))
-            Button(onClick = onGetInContact, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = actionTealColor.copy(alpha = 0.1f), contentColor = actionTealColor)) { Text("Contact Driver") }
-            Spacer(modifier = Modifier.height(12.dp))
             Button(onClick = { onConfirmCancel(reason) }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = statusRedColor)) { Text("Confirm Cancellation") }
         }
     }

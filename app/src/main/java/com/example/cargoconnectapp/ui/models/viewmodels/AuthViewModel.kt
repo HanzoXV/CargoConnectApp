@@ -80,7 +80,11 @@ class AuthViewModel (private val sessionViewModel: UserSessionViewModel) : ViewM
             val part = MultipartBody.Part.createFormData("file", tempFile.name, requestBody)
 
             val response = RetrofitClient.instance.uploadFile(part)
-            if (response.isSuccessful) response.body()?.link else null
+            if (response.isSuccessful) {
+                val link = response.body()?.link
+                // Only save the relative path (api/uploads/...) to keep database IP-independent
+                link?.substringAfter("9095/")
+            } else null
         } catch (e: Exception) {
             e.printStackTrace()
             null
@@ -125,11 +129,13 @@ class AuthViewModel (private val sessionViewModel: UserSessionViewModel) : ViewM
         val profileResponse = RetrofitClient.instance.getUserData(UserDataRequest(userId = id))
         
         return if (profileResponse.isSuccessful && profileResponse.body() != null) {
+            val data = profileResponse.body()!!
             sessionViewModel.updateSession(
                 id = id,
                 roleBasedId = roleBasedId,
                 email = userEmail,
                 role = roleEnum,
+                profileImage = data.profileImageUrl?: "N/A",
                 userData = profileResponse.body()!!
             )
             true

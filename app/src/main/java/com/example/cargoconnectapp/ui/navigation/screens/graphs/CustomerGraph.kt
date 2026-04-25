@@ -102,7 +102,7 @@ fun NavGraphBuilder.customerGraph(
     }
 
     // ── NEW SHIPMENT ──
-    composable<CustomerNewShipment> @androidx.annotation.RequiresPermission(allOf = [android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION]) {
+    composable<CustomerNewShipment> {
         val page = it.toRoute<CustomerNewShipment>().page
         val args = sharedArgs()
         when (page) {
@@ -279,6 +279,7 @@ fun NavGraphBuilder.customerGraph(
                     onFindTruckClick     = { shipment ->
                         customerViewModel.searchAvailableTrucks(
                             shipmentId = shipment.shipmentId,
+                            isStrict = false,
                             onSuccess = {
                                 navController.navigate(CustomerNewShipment(CustomerNewShipmentPage.FindingTruck))
                             },
@@ -302,7 +303,6 @@ fun NavGraphBuilder.customerGraph(
                 CancelBookingScreen(
                     currentTab       = args.tab,
                     onBack           = { navController.popBackStack() },
-                    onGetInContact   = { navController.navigate(CustomerChat(CustomerChatPage.Details)) },
                     onConfirmCancel  = { navController.popBackStack() },
                     onHomeClick      = args.onHomeClick,
                     onOrdersClick    = args.onOrdersClick,
@@ -347,6 +347,8 @@ fun NavGraphBuilder.customerGraph(
         when (page) {
             CustomerProfilePage.Main -> {
                 CustomerProfileScreen(
+                    fullName               = session.userFullName,
+                    profileImageUrl        = session.userProfileImageUrl,
                     currentTab             = args.tab,
                     onHomeClick            = { navController.navigateTab(CustomerDashboard()) },
                     onOrdersClick          = { navController.navigateTab(CustomerNewShipment()) },
