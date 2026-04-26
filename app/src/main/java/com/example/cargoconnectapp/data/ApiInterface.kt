@@ -39,7 +39,7 @@ interface ApiInterface {
     suspend fun deleteRoute(@Path("routeId") routeId: Int): Response<String>
 
     //Driver Requests
-    @GET("api/drivers/{id}/requests")
+    @GET("api/drivers/{id}/requests/pending")
     suspend fun getDriverRequests(
         @Path("id") driverId: Int
     ): Response<DriverRequestsResponse>
@@ -68,6 +68,58 @@ interface ApiInterface {
     suspend fun getAvailableTrucks(
         @Query("shipmentId") shipmentId: Int
     ): Response<List<AvailabilityDto>>
+
+    //---------- REQUESTS AAAAA
+    @POST("api/request/send")
+    suspend fun sendRequest(
+    @Query("shipmentId") shipmentId: Int,
+    @Query("driverId") driverId: Int,
+    @Query("routeId") routeId: Int
+): Response<String>
+
+    @POST("api/requests/decline")
+    suspend fun declineRequest(
+        @Query("requestId") requestId: Int
+    ): Response<DeclineResponseDto>
+
+    @POST("api/drivers/accept-request")
+    suspend fun acceptRequest(
+        @Query("requestId") requestId: Int
+    ): Response<AcceptResponseDto>
+
+    //----------- DRIVER BOOKINGS -------------//
+    @GET("api/drivers/{driverId}/bookings/assigned")
+    suspend fun getConfirmedBookings(@Path("driverId") driverId: Int): Response<List<BookingData>>
+
+    @GET("api/drivers/{driverId}/bookings/in-transit")
+    suspend fun getInTransitBookings(@Path("driverId") driverId: Int): Response<List<BookingData>>
+
+    @GET("api/drivers/{driverId}/bookings/completed")
+    suspend fun getCompletedBookings(@Path("driverId") driverId: Int): Response<List<BookingData>>
+
+    @GET("api/drivers/{driverId}/bookings/canceled")
+    suspend fun getCanceledBookings(@Path("driverId") driverId: Int): Response<List<BookingData>>
+
+
+    //---------- REACHED FUNC -----------------//
+    @GET("api/checkpoints/{checkpointId}/shipments")
+    suspend fun getShipmentsAtCheckpoint(
+        @Path("checkpointId") checkpointId: Int,
+        @Query("driverId") driverId: Int
+    ): Response<CheckpointShipmentsResponse>
+
+    @POST("api/checkpoints/{checkpointId}/confirm")
+    suspend fun confirmCheckpointReached(
+        @Path("checkpointId") checkpointId: Int,
+        @Query("driverId") driverId: Int
+    ): Response<CheckpointConfirmResponse>
+
+    @POST("api/trips/start/{checkpointId}")
+    suspend fun startTrip(
+        @Path("checkpointId") checkpointId: Int,
+        @Query("driverId") driverId: Int
+    ): Response<StartTripResponse>
+
 
 
 }

@@ -190,7 +190,7 @@ fun NavGraphBuilder.customerGraph(
                 DriverFoundScreen(
                     availableTrucks  = customerViewModel.availableTrucks,
                     currentTab       = args.tab,
-                    onSendRequest    = { truck -> /* Send request logic */ },
+                    onSendRequest    = { truck -> customerViewModel.sendDeliveryRequest(truck) },
                     onShowDetails    = { truck -> 
                         customerViewModel.selectedTruck = truck
                         navController.navigate(CustomerNewShipment(CustomerNewShipmentPage.TruckDetails))
@@ -199,7 +199,10 @@ fun NavGraphBuilder.customerGraph(
                     onOrdersClick    = args.onOrdersClick,
                     onHistoryClick   = args.onHistoryClick,
                     onChatClick      = args.onChatClick,
-                    onProfileClick   = args.onProfileClick
+                    onProfileClick   = args.onProfileClick,
+                    successMessage   = customerViewModel.successMessage,
+                    errorMessage     = customerViewModel.errorMessage,
+                    onClearMessages  = { customerViewModel.clearMessages() }
                 )
             }
             CustomerNewShipmentPage.TruckDetails -> {
@@ -210,14 +213,17 @@ fun NavGraphBuilder.customerGraph(
                             GeoPoint(truck.pickupLat, truck.pickupLong),
                             GeoPoint(truck.destLat, truck.destLong)
                         ),
-                        onSendRequest    = { /* Send request logic */ },
+                        onSendRequest    = { customerViewModel.sendDeliveryRequest(truck) },
                         onBack           = { navController.popBackStack() },
                         currentTab       = args.tab,
                         onHomeClick      = args.onHomeClick,
                         onOrdersClick    = args.onOrdersClick,
                         onHistoryClick   = args.onHistoryClick,
                         onChatClick      = args.onChatClick,
-                        onProfileClick   = args.onProfileClick
+                        onProfileClick   = args.onProfileClick,
+                        successMessage   = customerViewModel.successMessage,
+                        errorMessage     = customerViewModel.errorMessage,
+                        onClearMessages  = { customerViewModel.clearMessages() }
                     )
                 }
             }
@@ -277,14 +283,18 @@ fun NavGraphBuilder.customerGraph(
                     onCancelClick        = { navController.navigate(CustomerBookings(CustomerBookingPage.CancelBooking)) },
                     onReviewClick        = { },
                     onFindTruckClick     = { shipment ->
+                        customerViewModel.radius = shipment.shipmentRadius ?: 1.0
                         customerViewModel.searchAvailableTrucks(
                             shipmentId = shipment.shipmentId,
-                            isStrict = false,
+                            isStrict = shipment.strict,
                             onSuccess = {
                                 navController.navigate(CustomerNewShipment(CustomerNewShipmentPage.FindingTruck))
                             },
                             onError = { }
                         )
+                    },
+                    onShipmentDetailsClick = { shipment ->
+                        // Modal is handled inside YourBookingsScreen
                     }
                 )
             }

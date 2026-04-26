@@ -51,6 +51,22 @@ import org.osmdroid.util.GeoPoint
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
+@RequiresApi(Build.VERSION_CODES.O)
+fun formatDate(isoString: String?): String {
+    if (isoString == null) return "N/A"
+    return try {
+        val zdt = ZonedDateTime.parse(isoString)
+        zdt.format(DateTimeFormatter.ofPattern("MMM dd, yyyy"))
+    } catch (e: Exception) {
+        try {
+            val ld = LocalDate.parse(isoString.substringBefore("T"))
+            ld.format(DateTimeFormatter.ofPattern("MMM dd, yyyy"))
+        } catch (e2: Exception) {
+            isoString
+        }
+    }
+}
+
 // ─────────────────────────────────────────────
 // CUSTOMER DASHBOARD SCREEN
 // ─────────────────────────────────────────────
@@ -244,7 +260,7 @@ fun NewShipmentPackagesScreen(
                 OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(16.dp)) {
                     Text("Cancel")
                 }
-                Button(onClick = onNext, enabled = addedPackages.isNotEmpty(), modifier = Modifier.weight(1.5f).height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)) {
+                Button(onClick = { onNext() }, enabled = addedPackages.isNotEmpty(), modifier = Modifier.weight(1.5f).height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)) {
                     Text("Proceed", fontWeight = FontWeight.Bold)
                 }
             }
@@ -604,9 +620,29 @@ fun DriverFoundScreen(
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
     onProfileClick: () -> Unit = {},
-    currentTab: CustomerDestination = CustomerDashboard()
+    currentTab: CustomerDestination = CustomerDashboard(),
+    successMessage: String? = null,
+    errorMessage: String? = null,
+    onClearMessages: () -> Unit = {}
 ) {
-    Scaffold(bottomBar = { CustomerBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) }, containerColor = backgroundColor) { innerPadding ->
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(successMessage, errorMessage) {
+        if (successMessage != null) {
+            snackbarHostState.showSnackbar(successMessage)
+            onClearMessages()
+        }
+        if (errorMessage != null) {
+            snackbarHostState.showSnackbar(errorMessage)
+            onClearMessages()
+        }
+    }
+
+    Scaffold(
+        bottomBar = { CustomerBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) },
+        containerColor = backgroundColor,
+        snackbarHost = { SnackbarHost(snackbarHostState) }
+    ) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp)) {
             Spacer(modifier = Modifier.height(32.dp))
             Text("Available Trucks", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
@@ -683,8 +719,24 @@ fun DriverDetailsScreen(
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
     onProfileClick: () -> Unit = {},
-    currentTab: CustomerDestination = CustomerDashboard()
+    currentTab: CustomerDestination = CustomerDashboard(),
+    successMessage: String? = null,
+    errorMessage: String? = null,
+    onClearMessages: () -> Unit = {}
 ) {
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(successMessage, errorMessage) {
+        if (successMessage != null) {
+            snackbarHostState.showSnackbar(successMessage)
+            onClearMessages()
+        }
+        if (errorMessage != null) {
+            snackbarHostState.showSnackbar(errorMessage)
+            onClearMessages()
+        }
+    }
+
     fun formatDate(isoString: String?): String {
         if (isoString == null) return "N/A"
         return try {
@@ -703,7 +755,8 @@ fun DriverDetailsScreen(
 
     Scaffold(
         bottomBar = { CustomerBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) },
-        containerColor = backgroundColor
+        containerColor = backgroundColor,
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             // Map Section (Route)
@@ -797,6 +850,7 @@ fun YourBookingsScreen(
     onCancelClick: (CustomerBooking) -> Unit = {},
     onReviewClick: (CustomerBooking) -> Unit = {},
     onFindTruckClick: (ShipmentDto) -> Unit = {},
+    onShipmentDetailsClick: (ShipmentDto) -> Unit = {},
     onHomeClick: () -> Unit = {},
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
@@ -805,6 +859,8 @@ fun YourBookingsScreen(
     currentTab: CustomerDestination = CustomerDashboard()
 ) {
     var selectedTab by remember { mutableStateOf("Active") }
+    var selectedShipmentForModal by remember { mutableStateOf<ShipmentDto?>(null) }
+
     Scaffold(bottomBar = { CustomerBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) }, containerColor = backgroundColor) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp)) {
             Spacer(modifier = Modifier.height(32.dp))
@@ -817,7 +873,11 @@ fun YourBookingsScreen(
                     "Active" -> { items(activeBookings) { booking -> CustomerBookingCardOverhauled(booking, onDetails = { onDetailsClick(booking) }, onContact = { onContactDriverClick(booking) }, onTrack = { onTrackClick(booking) }, onCancel = { onCancelClick(booking) }) } }
                     "Pending" -> { 
                         items(pendingBookings) { shipment -> 
-                            PendingShipmentCard(shipment, onFindTruck = { onFindTruckClick(shipment) }) 
+                            PendingShipmentCard(
+                                shipment = shipment, 
+                                onFindTruck = { onFindTruckClick(shipment) },
+                                onDetails = { selectedShipmentForModal = shipment }
+                            ) 
                         } 
                     }
                     "Completed" -> { items(completedBookings) { booking -> CompletedBookingCardOverhauled(booking, onDetails = { onDetailsClick(booking) }, onReview = { onReviewClick(booking) }) } }
@@ -825,10 +885,18 @@ fun YourBookingsScreen(
             }
         }
     }
+
+    // Details Modal
+    if (selectedShipmentForModal != null) {
+        PendingShipmentDetailsModal(
+            shipment = selectedShipmentForModal!!,
+            onClose = { selectedShipmentForModal = null }
+        )
+    }
 }
 
 @Composable
-fun PendingShipmentCard(shipment: ShipmentDto, onFindTruck: () -> Unit) {
+fun PendingShipmentCard(shipment: ShipmentDto, onFindTruck: () -> Unit, onDetails: () -> Unit) {
     GlassCard {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -852,17 +920,91 @@ fun PendingShipmentCard(shipment: ShipmentDto, onFindTruck: () -> Unit) {
         
         Spacer(modifier = Modifier.height(16.dp))
         
-        Button(
-            onClick = onFindTruck,
-            modifier = Modifier.fillMaxWidth().height(40.dp),
-            shape = RoundedCornerShape(10.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
-        ) {
-            Icon(Icons.Default.Search, null, modifier = Modifier.size(14.dp))
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("Find Truck", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = onDetails,
+                modifier = Modifier.weight(1f).height(40.dp),
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, textThemeColor.copy(alpha = 0.1f))
+            ) {
+                Text("Details", fontSize = 12.sp, color = textThemeColor)
+            }
+            Button(
+                onClick = onFindTruck,
+                modifier = Modifier.weight(1.5f).height(40.dp),
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
+            ) {
+                Icon(Icons.Default.Search, null, modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Find Truck", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
         }
     }
+}
+
+@RequiresApi(Build.VERSION_CODES.O)
+@Composable
+fun PendingShipmentDetailsModal(
+    shipment: ShipmentDto,
+    onClose: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onClose,
+        confirmButton = {
+            TextButton(onClick = onClose) {
+                Text("Close", color = actionTealColor, fontWeight = FontWeight.Bold)
+            }
+        },
+        title = {
+            Text("Shipment Details", fontWeight = FontWeight.ExtraBold, color = textThemeColor)
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                DetailItem(Icons.Default.PinDrop, "Pickup Location", shipment.pickupAddress)
+                DetailItem(Icons.Default.Flag, "Delivery Location", shipment.deliveryAddress)
+                
+                HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f))
+                
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Recipient", fontSize = 10.sp, color = Color.Gray)
+                        Text("${shipment.recipientFname} ${shipment.recipientLname ?: ""}", fontWeight = FontWeight.Bold)
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Contact", fontSize = 10.sp, color = Color.Gray)
+                        Text(shipment.recipientContact ?: "N/A", fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Total Weight", fontSize = 10.sp, color = Color.Gray)
+                        Text("${shipment.totalWeight} kg", fontWeight = FontWeight.Bold)
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Radius", fontSize = 10.sp, color = Color.Gray)
+                        Text("${shipment.shipmentRadius ?: 0.0} m", fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Items", fontSize = 10.sp, color = Color.Gray)
+                        Text("${shipment.packages?.size ?: 0} units", fontWeight = FontWeight.Bold)
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Type", fontSize = 10.sp, color = Color.Gray)
+                        Text(shipment.shipmentType ?: "N/A", fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                DetailItem(Icons.Default.CalendarToday, "Booking Date", formatDate(shipment.bookingDate))
+            }
+        },
+        shape = RoundedCornerShape(24.dp),
+        containerColor = Color.White
+    )
 }
 
 @Composable

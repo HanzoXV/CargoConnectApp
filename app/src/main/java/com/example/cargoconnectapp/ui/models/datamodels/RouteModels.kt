@@ -73,6 +73,16 @@ data class CreateRouteRequest(
     val activateNow: Boolean = false,
     @SerializedName("baseFare")
     val baseFare: Double,
+    @SerializedName("isFragile")
+    val isFragile: Boolean = false,
+    @SerializedName("isLiquid")
+    val isLiquid: Boolean = false,
+    @SerializedName("isFlammable")
+    val isFlammable: Boolean = false,
+    @SerializedName("keepUpright")
+    val keepUpright: Boolean = false,
+    @SerializedName("shipmentType")
+    val shipmentType: String,
     @SerializedName("points")
     val points: List<RouteCheckpointRequest>
 )
@@ -86,4 +96,53 @@ data class RouteCheckpointRequest(
     val longitude: Double,
     @SerializedName("sequenceNo")
     val sequenceNo: Int
+)
+
+data class CheckpointShipmentsResponse(
+    val checkpoint_id: Int,
+    val checkpoint_name: String,
+    val to_load: CheckpointShipmentGroup,
+    val to_drop: CheckpointShipmentGroup
+)
+
+data class CheckpointShipmentGroup(
+    val total: Int,
+    val shipments: List<CheckpointShipmentData>
+)
+
+data class CheckpointShipmentData(
+    val booking_id: Int,
+    val shipment_id: Int,
+    val status: String,
+    val amount: Double,
+    val pickup_date: String?,
+    val pickup_address: String?,
+    val pickup_lat: Double?,
+    val pickup_long: Double?,
+    val delivery_address: String?,
+    val delivery_lat: Double?,
+    val delivery_long: Double?,
+    val sender_name: String?,
+    val sender_contact: String?,
+    val total_weight: Double?,
+    val package_count: Int?,
+    val recipient_name: String?,
+    val recipient_contact: String?,
+    val packages: List<PackageDto> = emptyList()
+)
+
+data class CheckpointConfirmResponse(
+    val message: String,
+    val checkpoint_id: Int,
+    val checkpoint_name: String,
+    val loaded: Int,
+    val delivered: Int
+)
+
+data class StartTripResponse(
+    val message: String,
+    val checkpoint_id: Int,
+    val checkpoint_name: String,
+    val trip_id: Int?,
+    val updated_bookings: Int
 )

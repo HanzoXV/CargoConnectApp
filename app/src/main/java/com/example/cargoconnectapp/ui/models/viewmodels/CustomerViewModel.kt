@@ -73,8 +73,10 @@ class CustomerViewModel : ViewModel() {
 
     var isLoading by mutableStateOf(false)
     var errorMessage by mutableStateOf<String?>(null)
+    var successMessage by mutableStateOf<String?>(null)
 
     var radius by mutableDoubleStateOf(1.0)
+    var shipmentType by mutableStateOf("Full")
 
     fun clearAllData() {
         assignedShipmentId = null
@@ -103,6 +105,7 @@ class CustomerViewModel : ViewModel() {
         recipientInstructions = ""
         availableTrucks.clear()
         errorMessage = null
+        successMessage = null
     }
 
     // ── API Spot 1: Dashboard Load ───────────────────────────────────────────
@@ -254,7 +257,9 @@ class CustomerViewModel : ViewModel() {
                     recipient_lname = recipientLastName,
                     recipient_contact = recipientContact,
                     instructionsMessage = recipientInstructions,
-                    booking_date = selectedLocalDate?.format(DateTimeFormatter.ISO_LOCAL_DATE) ?: ""
+                    booking_date = selectedLocalDate?.format(DateTimeFormatter.ISO_LOCAL_DATE) ?: "",
+                    shipment_radius = radius,
+                    shipment_type = shipmentType
                 )
 
                 val response = RetrofitClient.instance.completeShipment(completeRequest)
@@ -306,5 +311,34 @@ class CustomerViewModel : ViewModel() {
                 isLoading = false
             }
         }
+    }
+
+    fun sendDeliveryRequest(truck: AvailabilityDto) {
+        val shipmentId = truck.shipmentId
+        val driverId = truck.driverId ?: return
+        val routeId = truck.routeId ?: return
+
+        viewModelScope.launch {
+            isLoading = true
+            errorMessage = null
+            successMessage = null
+            try {
+                val response = RetrofitClient.instance.sendRequest(shipmentId, driverId, routeId)
+                if (response.isSuccessful) {
+                    successMessage = "Request sent to ${truck.driverName} successfully!"
+                } else {
+                    errorMessage = response.errorBody()?.string() ?: "Failed to send request"
+                }
+            } catch (e: Exception) {
+                errorMessage = e.message ?: "Connection error"
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    fun clearMessages() {
+        errorMessage = null
+        successMessage = null
     }
 }

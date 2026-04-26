@@ -44,6 +44,10 @@ import com.example.cargoconnectapp.ui.models.map.OSMContainer
 import com.example.cargoconnectapp.ui.models.map.getAddressFromGeoPoint
 import org.osmdroid.util.GeoPoint
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import com.example.cargoconnectapp.ui.models.datamodels.BookingData
+import com.example.cargoconnectapp.ui.models.datamodels.PackageDto
+import com.example.cargoconnectapp.ui.models.datamodels.CheckpointShipmentsResponse
+import com.example.cargoconnectapp.ui.models.datamodels.CheckpointShipmentData
 import com.example.cargoconnectapp.ui.models.viewmodels.UserSessionViewModel
 import java.time.LocalDate
 import java.time.YearMonth
@@ -53,12 +57,18 @@ import java.time.YearMonth
 // ─────────────────────────────────────────────
 
 data class ShipmentRequest(
+    val requestId: Int,
     val title: String,
     val route: String,
     val weight: String,
     val pickup: String,
     val amount: String,
-    val isShared: Boolean = false
+    val isShared: Boolean = false,
+    val totalWeight: Double = 0.0,
+    val packageCount: Int = 0,
+    val pickupAddress: String = "",
+    val deliveryAddress: String = "",
+    val packages: List<PackageDto> = emptyList()
 )
 
 data class CustomerDelivery(
@@ -344,6 +354,8 @@ fun DriverDashboardScreen(
 
                             Spacer(modifier = Modifier.height(16.dp))
 
+                            val firstUnreachedIndex = checkpoints.indexOfFirst { it.reached != true }
+
                             checkpoints.forEachIndexed { index, checkpoint ->
                                 val dist = calculatedDistances.getOrNull(index)?.let { 
                                     if (it < 1.0) "${(it * 1000).toInt()}m" else "%.1f km".format(it)
@@ -353,7 +365,9 @@ fun DriverDashboardScreen(
                                     city = checkpoint.name ?: "Unknown Stop",
                                     distance = dist,
                                     isReached = checkpoint.reached ?: false,
+                                    isFirst = index == 0,
                                     isLast = index == checkpoints.lastIndex,
+                                    isEnabled = index == firstUnreachedIndex,
                                     onDelay = { onDelayClick(index) },
                                     onReached = { onReachedClick(index) }
                                 )
@@ -417,7 +431,9 @@ fun EnhancedRouteItem(
     city: String,
     distance: String,
     isReached: Boolean,
+    isFirst: Boolean,
     isLast: Boolean,
+    isEnabled: Boolean,
     onDelay: () -> Unit,
     onReached: () -> Unit
 ) {
@@ -449,8 +465,14 @@ fun EnhancedRouteItem(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = onDelay,
+                        enabled = isEnabled,
                         modifier = Modifier.height(32.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = statusRedColor.copy(alpha = 0.1f), contentColor = statusRedColor),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = statusRedColor.copy(alpha = 0.1f), 
+                            contentColor = statusRedColor,
+                            disabledContainerColor = Color.Gray.copy(alpha = 0.05f),
+                            disabledContentColor = Color.Gray.copy(alpha = 0.3f)
+                        ),
                         shape = RoundedCornerShape(8.dp),
                         contentPadding = PaddingValues(horizontal = 12.dp)
                     ) {
@@ -458,12 +480,17 @@ fun EnhancedRouteItem(
                     }
                     Button(
                         onClick = onReached,
+                        enabled = isEnabled,
                         modifier = Modifier.height(32.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = actionTealColor),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = actionTealColor,
+                            disabledContainerColor = Color.Gray.copy(alpha = 0.1f),
+                            disabledContentColor = Color.Gray.copy(alpha = 0.3f)
+                        ),
                         shape = RoundedCornerShape(8.dp),
                         contentPadding = PaddingValues(horizontal = 12.dp)
                     ) {
-                        Text("Arrived", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(if (isFirst) "Start" else "Reached", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -515,8 +542,20 @@ fun ShipmentRequestsScreen(
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
     onProfileClick: () -> Unit = {},
-    currentTab: DriverDestination = DriverDashboard()
+    currentTab: DriverDestination = DriverDashboard(),
+    successMessage: String? = null,
+    errorMessage: String? = null,
+    onClearMessages: () -> Unit = {}
 ) {
+    if (successMessage != null) {
+        AlertDialog(
+            onDismissRequest = onClearMessages,
+            confirmButton = { TextButton(onClick = onClearMessages) { Text("OK", color = actionTealColor) } },
+            title = { Text("Success") },
+            text = { Text(successMessage) }
+        )
+    }
+
     Scaffold(
         bottomBar = {
             DashboardBottomBar(
@@ -542,7 +581,11 @@ fun ShipmentRequestsScreen(
             
             Spacer(modifier = Modifier.height(24.dp))
 
-            if (requests.isEmpty()) {
+            if (errorMessage != null) {
+                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    Text(errorMessage, color = statusRedColor, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
+                }
+            } else if (requests.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Default.Inbox, contentDescription = null, modifier = Modifier.size(64.dp), tint = Color.Gray.copy(alpha = 0.3f))
@@ -551,15 +594,16 @@ fun ShipmentRequestsScreen(
                 }
             } else {
                 LazyColumn(
+                    modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                     contentPadding = PaddingValues(bottom = 24.dp)
                 ) {
-                    items(requests.size) { index ->
+                    itemsIndexed(requests) { _, request ->
                         RequestCard(
-                            request = requests[index],
-                            onDetails = { onDetailsClick(requests[index]) },
-                            onAccept = { onAccept(requests[index]) },
-                            onDecline = { onDecline(requests[index]) }
+                            request = request,
+                            onDetails = { onDetailsClick(request) },
+                            onAccept = { onAccept(request) },
+                            onDecline = { onDecline(request) }
                         )
                     }
                 }
@@ -636,18 +680,13 @@ fun LabelValue(label: String, value: String) {
 @Composable
 fun ShipmentRequestDetailScreen(
     request: ShipmentRequest = ShipmentRequest(
+        0,
         "Electronics Household (Private)",
         "Karachi to Peshawar",
         "~580 KGs",
         "02, September, 2025",
         "14570.0 PKR"
     ),
-    packages: List<ShipmentPackage> = listOf(
-        ShipmentPackage("Refrigerator", 1, "Red", "PESHAWA#122025", "15cm x 15cm x 4cm", "~280 KGs", "Keep Upright"),
-        ShipmentPackage("Sofa", 3, "Red", "PESHAWA#122026", "15cm x 15cm x 4cm", "~300 KGs")
-    ),
-    pickupAddress: String = "Shabir Chowk, Karachi",
-    deliveryAddress: String = "Main Stand, Peshawar",
     onBack: () -> Unit = {},
     onAccept: () -> Unit = {},
     onDecline: () -> Unit = {},
@@ -656,8 +695,20 @@ fun ShipmentRequestDetailScreen(
     onHistoryClick: () -> Unit = {},
     onChatClick: () -> Unit = {},
     onProfileClick: () -> Unit = {},
-    currentTab: DriverDestination = DriverDashboard()
+    currentTab: DriverDestination = DriverDashboard(),
+    successMessage: String? = null,
+    errorMessage: String? = null,
+    onClearMessages: () -> Unit = {}
 ) {
+    if (successMessage != null) {
+        AlertDialog(
+            onDismissRequest = onClearMessages,
+            confirmButton = { TextButton(onClick = onClearMessages) { Text("OK", color = actionTealColor) } },
+            title = { Text("Success") },
+            text = { Text(successMessage) }
+        )
+    }
+
     Scaffold(
         bottomBar = {
             DashboardBottomBar(
@@ -685,22 +736,27 @@ fun ShipmentRequestDetailScreen(
             Spacer(modifier = Modifier.height(24.dp))
             Text("Request Details", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
             
+            Spacer(modifier = Modifier.height(12.dp))
+            if (errorMessage != null) {
+                Text(errorMessage, color = statusRedColor, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
             
             GlassCard {
                 Text(request.title, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = actionTealColor)
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                DetailItem(Icons.Default.PinDrop, "Pickup", pickupAddress)
-                DetailItem(Icons.Default.Flag, "Delivery", deliveryAddress)
-                DetailItem(Icons.Default.CalendarToday, "Pickup Date", request.pickup)
-                DetailItem(Icons.Default.Scale, "Total Weight", request.weight)
+                DetailItem(Icons.Default.PinDrop, "Pickup", request.pickupAddress)
+                DetailItem(Icons.Default.Flag, "Delivery", request.deliveryAddress)
+                DetailItem(Icons.Default.Scale, "Total Weight", "${request.totalWeight} KG")
+                DetailItem(Icons.Default.Inventory, "Total Items", "${request.packageCount} units")
             }
             
             Spacer(modifier = Modifier.height(16.dp))
             SectionTitle("Items to carry")
             
-            packages.forEach { pkg ->
+            request.packages.forEach { pkg ->
                 GlassCard(modifier = Modifier.padding(vertical = 4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(modifier = Modifier.size(40.dp), shape = RoundedCornerShape(8.dp), color = actionTealColor.copy(alpha = 0.1f)) {
@@ -709,13 +765,12 @@ fun ShipmentRequestDetailScreen(
                         Spacer(modifier = Modifier.width(16.dp))
                         Column {
                             Text(pkg.name, fontWeight = FontWeight.Bold)
-                            Text("Qty: ${pkg.quantity}", fontSize = 12.sp, color = Color.Gray)
+                            Text("Qty: ${pkg.quantity} • Weight: ${pkg.weight} KG", fontSize = 12.sp, color = Color.Gray)
                         }
                     }
-                    if (pkg.dimensions != null) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("Size: ${pkg.dimensions}", fontSize = 12.sp, color = Color.Gray)
-                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Dimensions: ${pkg.length} x ${pkg.width} x ${pkg.height} cm", fontSize = 12.sp, color = Color.Gray)
+                    Text("Tag: ${pkg.tagNo}", fontSize = 12.sp, color = Color.Gray)
                 }
             }
             
@@ -762,11 +817,11 @@ fun DetailItem(icon: ImageVector, label: String, value: String) {
 
 @Composable
 fun CustomersScreen(
-    activeDeliveries: List<CustomerDelivery> = emptyList(),
-    pendingPickups: List<CustomerDelivery> = emptyList(),
-    upcomingPickups: List<CustomerDelivery> = emptyList(),
-    onDetailsClick: (CustomerDelivery) -> Unit = {},
-    onConfirmClick: (CustomerDelivery) -> Unit = {},
+    pendingBookings: List<BookingData> = emptyList(),
+    inTransitBookings: List<BookingData> = emptyList(),
+    completedBookings: List<BookingData> = emptyList(),
+    canceledBookings: List<BookingData> = emptyList(),
+    onDetailsClick: (BookingData) -> Unit = {},
     onHomeClick: () -> Unit = {},
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
@@ -774,6 +829,9 @@ fun CustomersScreen(
     onProfileClick: () -> Unit = {},
     currentTab: DriverDestination = DriverDashboard()
 ) {
+    var selectedTab by remember { mutableStateOf("Pending") }
+    val tabs = listOf("Pending", "In-Transit", "Completed", "Canceled")
+
     Scaffold(
         bottomBar = {
             DashboardBottomBar(
@@ -792,27 +850,55 @@ fun CustomersScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = 24.dp)
-                .verticalScroll(rememberScrollState())
         ) {
             Spacer(modifier = Modifier.height(32.dp))
             Text("Deliveries", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = textThemeColor)
             
             Spacer(modifier = Modifier.height(24.dp))
 
-            SectionTitle("In Progress")
-            activeDeliveries.forEach { DeliveryInteractiveCard(it, statusBlueColor, onDetailsClick) }
-            
+            InteractiveTabRow(
+                tabs = tabs,
+                selectedTab = selectedTab,
+                onTabSelected = { selectedTab = it }
+            )
+
             Spacer(modifier = Modifier.height(16.dp))
-            
-            SectionTitle("Ready for Pickup")
-            pendingPickups.forEach { DeliveryInteractiveCard(it, statusOrangeColor, onDetailsClick, onConfirmClick) }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            SectionTitle("Upcoming")
-            upcomingPickups.forEach { DeliveryInteractiveCard(it, Color.Gray, onDetailsClick) }
-            
-            Spacer(modifier = Modifier.height(32.dp))
+
+            val currentList = when (selectedTab) {
+                "Pending" -> pendingBookings
+                "In-Transit" -> inTransitBookings
+                "Completed" -> completedBookings
+                "Canceled" -> canceledBookings
+                else -> emptyList()
+            }
+
+            val accentColor = when (selectedTab) {
+                "Pending" -> statusOrangeColor
+                "In-Transit" -> statusBlueColor
+                "Completed" -> actionTealColor
+                "Canceled" -> statusRedColor
+                else -> Color.Gray
+            }
+
+            if (currentList.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No $selectedTab deliveries found.", color = Color.Gray)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(bottom = 24.dp)
+                ) {
+                    itemsIndexed(currentList) { _, booking ->
+                        BookingInteractiveCard(
+                            booking = booking,
+                            accentColor = accentColor,
+                            onDetails = { onDetailsClick(booking) }
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -826,6 +912,48 @@ fun SectionTitle(text: String) {
         color = textThemeColor.copy(alpha = 0.4f),
         modifier = Modifier.padding(vertical = 12.dp)
     )
+}
+
+@Composable
+fun BookingInteractiveCard(
+    booking: BookingData,
+    accentColor: Color,
+    onDetails: (BookingData) -> Unit
+) {
+    GlassCard(modifier = Modifier.padding(vertical = 8.dp).clickable { onDetails(booking) }) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(4.dp, 40.dp)
+                    .clip(CircleShape)
+                    .background(accentColor)
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Booking #${booking.booking_id}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text("Shipment #${booking.shipment_id}", fontSize = 12.sp, color = accentColor, fontWeight = FontWeight.SemiBold)
+            }
+            Surface(color = accentColor.copy(alpha = 0.1f), shape = RoundedCornerShape(8.dp)) {
+                Text(booking.status, modifier = Modifier.padding(6.dp), fontSize = 10.sp, color = accentColor, fontWeight = FontWeight.Bold)
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        Text("Amount: ${booking.amount} PKR", fontSize = 13.sp, color = textThemeColor.copy(alpha = 0.7f))
+        booking.pickup_date?.let {
+            Text("Pickup Date: $it", fontSize = 13.sp, color = textThemeColor.copy(alpha = 0.7f))
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(
+            onClick = { onDetails(booking) },
+            modifier = Modifier.fillMaxWidth().height(40.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = accentColor)
+        ) {
+            Text("View Details", fontWeight = FontWeight.Bold)
+        }
+    }
 }
 
 @Composable
@@ -873,6 +1001,229 @@ fun DeliveryInteractiveCard(
 }
 
 // ─────────────────────────────────────────────
+// DRIVER BOOKING DETAIL SCREEN
+// ─────────────────────────────────────────────
+
+@Composable
+fun DriverBookingDetailScreen(
+    booking: BookingData,
+    onBack: () -> Unit = {},
+    onHomeClick: () -> Unit = {},
+    onOrdersClick: () -> Unit = {},
+    onHistoryClick: () -> Unit = {},
+    onChatClick: () -> Unit = {},
+    onProfileClick: () -> Unit = {},
+    currentTab: DriverDestination = DriverDashboard()
+) {
+    Scaffold(
+        bottomBar = {
+            DashboardBottomBar(
+                currentTab = currentTab,
+                onHomeClick = onHomeClick,
+                onOrdersClick = onOrdersClick,
+                onHistoryClick = onHistoryClick,
+                onChatClick = onChatClick,
+                onProfileClick = onProfileClick
+            )
+        },
+        containerColor = backgroundColor
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Spacer(modifier = Modifier.height(24.dp))
+            IconButton(onClick = onBack, modifier = Modifier.background(Color.White, CircleShape)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("Booking Details", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            GlassCard {
+                Text("Booking #${booking.booking_id}", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = actionTealColor)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Status: ${booking.status}", fontWeight = FontWeight.Bold, color = statusBlueColor)
+                Text("Amount: ${booking.amount} PKR", fontWeight = FontWeight.Bold)
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f))
+                Spacer(modifier = Modifier.height(16.dp))
+
+                DetailItem(Icons.Default.Person, "Sender", booking.sender_name ?: "N/A")
+                DetailItem(Icons.Default.Phone, "Sender Contact", booking.sender_contact ?: "N/A")
+                DetailItem(Icons.Default.Person, "Recipient", booking.recipient_name ?: "N/A")
+                DetailItem(Icons.Default.Phone, "Recipient Contact", booking.recipient_contact ?: "N/A")
+                DetailItem(Icons.Default.PinDrop, "Pickup", booking.pickup_address ?: "N/A")
+                DetailItem(Icons.Default.Flag, "Delivery", booking.delivery_address ?: "N/A")
+                DetailItem(Icons.Default.Scale, "Total Weight", "${booking.total_weight ?: 0.0} KG")
+                DetailItem(Icons.Default.Inventory, "Total Items", "${booking.package_count ?: 0} units")
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            SectionTitle("Packages")
+            
+            booking.packages.forEach { pkg ->
+                GlassCard(modifier = Modifier.padding(vertical = 4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(modifier = Modifier.size(40.dp), shape = RoundedCornerShape(8.dp), color = actionTealColor.copy(alpha = 0.1f)) {
+                            Icon(Icons.Default.Inventory2, null, modifier = Modifier.padding(8.dp), tint = actionTealColor)
+                        }
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column {
+                            Text(pkg.name, fontWeight = FontWeight.Bold)
+                            Text("Qty: ${pkg.quantity} • Weight: ${pkg.weight} KG", fontSize = 12.sp, color = Color.Gray)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Dimensions: ${pkg.length} x ${pkg.width} x ${pkg.height} cm", fontSize = 12.sp, color = Color.Gray)
+                    Text("Tag: ${pkg.tagNo}", fontSize = 12.sp, color = Color.Gray)
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(32.dp))
+        }
+    }
+}
+
+// ─────────────────────────────────────────────
+// CHECKPOINT SHIPMENTS SCREEN
+// ─────────────────────────────────────────────
+
+@Composable
+fun CheckpointShipmentsScreen(
+    data: CheckpointShipmentsResponse,
+    isLoading: Boolean = false,
+    onConfirm: () -> Unit = {},
+    onBack: () -> Unit = {},
+    onHomeClick: () -> Unit = {},
+    onOrdersClick: () -> Unit = {},
+    onHistoryClick: () -> Unit = {},
+    onChatClick: () -> Unit = {},
+    onProfileClick: () -> Unit = {},
+    currentTab: DriverDestination = DriverDashboard()
+) {
+    var selectedSubTab by remember { mutableStateOf("Load") }
+
+    Scaffold(
+        bottomBar = {
+            DashboardBottomBar(
+                currentTab = currentTab,
+                onHomeClick = onHomeClick,
+                onOrdersClick = onOrdersClick,
+                onHistoryClick = onHistoryClick,
+                onChatClick = onChatClick,
+                onProfileClick = onProfileClick
+            )
+        },
+        containerColor = backgroundColor
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 24.dp)
+        ) {
+            Spacer(modifier = Modifier.height(24.dp))
+            IconButton(onClick = onBack, modifier = Modifier.background(Color.White, CircleShape)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+            Text(data.checkpoint_name, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            Text("Checkpoint Shipment Log", fontSize = 14.sp, color = Color.Gray)
+            
+            Spacer(modifier = Modifier.height(24.dp))
+
+            InteractiveTabRow(
+                tabs = listOf("Load", "Drop"),
+                selectedTab = selectedSubTab,
+                onTabSelected = { selectedSubTab = it }
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Box(modifier = Modifier.weight(1f)) {
+                if (selectedSubTab == "Load") {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxSize()) {
+                        if (data.to_load.shipments.isEmpty()) {
+                            item { Text("No pickups at this stop.", color = Color.Gray, fontSize = 13.sp) }
+                        } else {
+                            itemsIndexed(data.to_load.shipments) { _, shipment ->
+                                ShipmentDetailedCard(shipment, statusOrangeColor, "Pickup From")
+                            }
+                        }
+                    }
+                } else {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxSize()) {
+                        if (data.to_drop.shipments.isEmpty()) {
+                            item { Text("No drop-offs at this stop.", color = Color.Gray, fontSize = 13.sp) }
+                        } else {
+                            itemsIndexed(data.to_drop.shipments) { _, shipment ->
+                                ShipmentDetailedCard(shipment, statusBlueColor, "Deliver To")
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            if (isLoading) {
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally).padding(vertical = 16.dp))
+            } else {
+                Button(
+                    onClick = onConfirm,
+                    modifier = Modifier.fillMaxWidth().height(56.dp).padding(bottom = 12.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
+                ) {
+                    Text("Confirm Reached", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+    }
+}
+
+@Composable
+fun ShipmentDetailedCard(
+    shipment: CheckpointShipmentData, 
+    color: Color,
+    label: String
+) {
+    GlassCard(modifier = Modifier.padding(vertical = 6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Surface(modifier = Modifier.size(40.dp), shape = RoundedCornerShape(8.dp), color = color.copy(alpha = 0.1f)) {
+                Icon(Icons.Default.Inventory2, null, modifier = Modifier.padding(8.dp), tint = color)
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column {
+                Text("Shipment #${shipment.shipment_id}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text("${shipment.total_weight} KG • ${shipment.package_count ?: 0} units", fontSize = 12.sp, color = Color.Gray)
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f))
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        Text(label, fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+        Text(shipment.sender_name ?: "N/A", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+        Text(shipment.sender_contact ?: "N/A", fontSize = 13.sp, color = actionTealColor)
+        
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.Top) {
+            Icon(Icons.Default.PinDrop, null, modifier = Modifier.size(14.dp), tint = Color.Gray)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(if(label == "Pickup From") (shipment.pickup_address ?: "N/A") else (shipment.delivery_address ?: "N/A"), fontSize = 12.sp, color = textThemeColor.copy(alpha = 0.7f))
+        }
+    }
+}
+
+// ─────────────────────────────────────────────
 // CUSTOMER SHIPMENTS DETAIL SCREEN (Overhauled)
 // ─────────────────────────────────────────────
 
@@ -913,7 +1264,7 @@ fun CustomerShipmentsDetailScreen(
             }
             Spacer(modifier = Modifier.height(24.dp))
             Text("Shipment Details", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
-            
+
             Spacer(modifier = Modifier.height(24.dp))
 
             if (shipments.isEmpty()) {
@@ -927,11 +1278,11 @@ fun CustomerShipmentsDetailScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                         Text("Weight: ${shipment.totalWeight}", fontSize = 14.sp, color = Color.Gray)
                         Text("Fare: ${shipment.totalFare}", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                        
+
                         Spacer(modifier = Modifier.height(16.dp))
                         HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f))
                         Spacer(modifier = Modifier.height(16.dp))
-                        
+
                         shipment.packages.forEachIndexed { index, pkg ->
                             Row(verticalAlignment = Alignment.Top, modifier = Modifier.padding(vertical = 4.dp)) {
                                 Surface(modifier = Modifier.size(24.dp), shape = CircleShape, color = actionTealColor.copy(alpha = 0.1f)) {
@@ -991,7 +1342,7 @@ fun ActivityScreen(
         ) {
             Spacer(modifier = Modifier.height(32.dp))
             Text("Activity", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = textThemeColor)
-            
+
             Spacer(modifier = Modifier.height(24.dp))
 
             InteractiveTabRow(
@@ -1004,7 +1355,7 @@ fun ActivityScreen(
 
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (selectedTab == "Chats") {
-                    items(chats.size) { index -> 
+                    items(chats.size) { index ->
                         EnhancedChatListItem(chats[index], onClick = { onChatClick(chats[index]) })
                     }
                 } else {
@@ -1151,9 +1502,9 @@ fun ProfileScreen(
                 ProfileMenuCard("Personal Information", Icons.Default.Badge, onYourInformationClick)
                 ProfileMenuCard("Route Management", Icons.Default.Route, onActivateRouteClick)
                 ProfileMenuCard("Settings & Security", Icons.Default.Settings, {})
-                
+
                 Spacer(modifier = Modifier.height(24.dp))
-                
+
                 // Role Switch Card
                 GlassCard {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1163,9 +1514,9 @@ fun ProfileScreen(
                         Switch(checked = isSwitchedToCustomer, onCheckedChange = { onSwitchRoleToggle(it) })
                     }
                 }
-                
+
                 Spacer(modifier = Modifier.height(12.dp))
-                
+
                 Button(
                     onClick = onLogoutClick,
                     modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -1235,7 +1586,7 @@ fun YourInformationScreen(
             }
             Spacer(modifier = Modifier.height(24.dp))
             Text("Personal Details", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
-            
+
             Spacer(modifier = Modifier.height(24.dp))
             GlassCard {
                 DetailRow("Full Name", fullName)
@@ -1246,7 +1597,7 @@ fun YourInformationScreen(
                 HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color.Gray.copy(alpha = 0.1f))
                 DetailRow("License", licenseNo)
             }
-            
+
             Spacer(modifier = Modifier.height(32.dp))
             Button(onClick = onEditClick, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)) {
                 Text("Edit Profile", fontWeight = FontWeight.Bold)
@@ -1278,7 +1629,7 @@ fun ChatScreen(
     onSendMessage: (String) -> Unit = {}
 ) {
     var messageText by remember { mutableStateOf("") }
-    
+
     Column(modifier = Modifier.fillMaxSize().background(backgroundColor).imePadding()) {
         // Chat Header
         Surface(modifier = Modifier.fillMaxWidth(), shadowElevation = 4.dp, color = Color.White) {
@@ -1296,17 +1647,17 @@ fun ChatScreen(
                 IconButton(onClick = onCallClick) { Icon(Icons.Default.Call, null, tint = actionTealColor) }
             }
         }
-        
+
         // Messages Area
         Box(modifier = Modifier.weight(1f).padding(horizontal = 16.dp)) {
             LazyColumn(modifier = Modifier.fillMaxSize(), reverseLayout = false, verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
-                items(messages.size) { index -> 
+                items(messages.size) { index ->
                     val msg = messages[index]
                     ChatBubbleEnhanced(msg)
                 }
             }
         }
-        
+
         // Input Area
         Surface(modifier = Modifier.fillMaxWidth(), color = Color.White) {
             Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1333,8 +1684,8 @@ fun ChatBubbleEnhanced(message: ChatMessage) {
     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = if(message.isSentByMe) Alignment.CenterEnd else Alignment.CenterStart) {
         Surface(
             shape = RoundedCornerShape(
-                topStart = 16.dp, topEnd = 16.dp, 
-                bottomStart = if(message.isSentByMe) 16.dp else 2.dp, 
+                topStart = 16.dp, topEnd = 16.dp,
+                bottomStart = if(message.isSentByMe) 16.dp else 2.dp,
                 bottomEnd = if(message.isSentByMe) 2.dp else 16.dp
             ),
             color = if(message.isSentByMe) actionTealColor else Color.White,
@@ -1368,7 +1719,7 @@ fun ActivateRouteScreen(
             Spacer(modifier = Modifier.height(32.dp))
             Text("Your Routes", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
             Spacer(modifier = Modifier.height(24.dp))
-            
+
             Text("Active Route", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
             Spacer(modifier = Modifier.height(8.dp))
             GlassCard(modifier = Modifier.clickable { onTapToChange() }) {
@@ -1382,7 +1733,7 @@ fun ActivateRouteScreen(
                     Text("CHANGE", fontSize = 12.sp, color = actionTealColor, fontWeight = FontWeight.Bold)
                 }
             }
-            
+
             Spacer(modifier = Modifier.height(24.dp))
             Text("Upcoming Route", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
             Spacer(modifier = Modifier.height(8.dp))
@@ -1417,22 +1768,22 @@ fun SelectRouteScreen(
             Spacer(modifier = Modifier.height(32.dp))
             Text("Select Route", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
             Spacer(modifier = Modifier.height(24.dp))
-            
+
             if (savedRoutes.isEmpty()) {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Text("No routes found. Create one first.", color = Color.Gray, fontWeight = FontWeight.Medium)
                 }
             } else {
                 LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(savedRoutes.size) { index ->
+                    itemsIndexed(savedRoutes) { index, route ->
                         GlassCard(modifier = Modifier.clickable { onRouteSelected(index) }) {
-                            Text(savedRoutes[index].first, fontWeight = FontWeight.Bold)
-                            savedRoutes[index].second?.let { Text(it, fontSize = 12.sp, color = Color.Gray) }
+                            Text(route.first, fontWeight = FontWeight.Bold)
+                            route.second?.let { Text(it, fontSize = 12.sp, color = Color.Gray) }
                         }
                     }
                 }
             }
-            
+
             Spacer(modifier = Modifier.height(24.dp))
             Button(onClick = onCreateNewRoute, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)) {
                 Icon(Icons.Default.Add, null)
@@ -1460,7 +1811,7 @@ fun CreateRouteStep1(
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             Box(modifier = Modifier.weight(1f)) {
                 OSMContainer(points = routePoints.toList(), onMapClick = { routePoints.add(it) }, onMapLongClick = {})
-                
+
                 Surface(modifier = Modifier.align(Alignment.TopCenter).padding(16.dp).fillMaxWidth().shadow(4.dp, RoundedCornerShape(16.dp)), color = Color.White.copy(alpha = 0.9f), shape = RoundedCornerShape(16.dp)) {
                     Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
@@ -1469,7 +1820,7 @@ fun CreateRouteStep1(
                     }
                 }
             }
-            
+
             Surface(modifier = Modifier.fillMaxWidth(), color = Color.White, shadowElevation = 8.dp) {
                 Button(onClick = onNext, enabled = routePoints.size >= 2, modifier = Modifier.padding(16.dp).fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)) {
                     Text("Confirm Route Points")
@@ -1502,14 +1853,14 @@ fun CreateRouteStep2(
             Spacer(modifier = Modifier.height(24.dp))
             Text("Set Dates", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
             Spacer(modifier = Modifier.height(24.dp))
-            
+
             Text("Departure Date", fontWeight = FontWeight.Bold)
             CalendarView(currentMonth = departureMonth, selectedDate = departureDate, minDate = minDate, onDateSelected = { departureDate = it }, onMonthChanged = { departureMonth = it })
-            
+
             Spacer(modifier = Modifier.height(24.dp))
             Text("Arrival Date", fontWeight = FontWeight.Bold)
             CalendarView(currentMonth = arrivalMonth, selectedDate = arrivalDate, minDate = departureDate ?: minDate, onDateSelected = { arrivalDate = it }, onMonthChanged = { arrivalMonth = it })
-            
+
             Spacer(modifier = Modifier.height(32.dp))
             Button(onClick = { onNext(departureDate!!, arrivalDate!!) }, enabled = departureDate != null && arrivalDate != null, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) {
                 Text("Continue")
@@ -1521,6 +1872,7 @@ fun CreateRouteStep2(
 
 @Composable
 fun CreateRouteStep3(
+    viewModel: DriverViewModel, // Integrated ViewModel
     onSave: (Double) -> Unit = {},
     onBack: () -> Unit = {},
     isLoading: Boolean = false,
@@ -1532,23 +1884,88 @@ fun CreateRouteStep3(
     currentTab: DriverDestination = DriverDashboard()
 ) {
     var fare by remember { mutableFloatStateOf(1000f) }
-    
-    Scaffold(bottomBar = { DashboardBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) }, containerColor = backgroundColor) { innerPadding ->
-        Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Spacer(modifier = Modifier.height(32.dp))
-            Text("Set Fare", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
-            Spacer(modifier = Modifier.height(64.dp))
-            
-            Text("PKR ${fare.toInt()}", fontSize = 48.sp, fontWeight = FontWeight.ExtraBold, color = actionTealColor)
-            Slider(value = fare, onValueChange = { fare = it }, valueRange = 100f..50000f, modifier = Modifier.padding(32.dp), colors = SliderDefaults.colors(thumbColor = actionTealColor, activeTrackColor = actionTealColor))
-            
-            Spacer(modifier = Modifier.weight(1f))
-            if(isLoading) CircularProgressIndicator()
-            else Button(onClick = { onSave(fare.toDouble()) }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) {
-                Text("Complete Setup")
+
+    Scaffold(
+        bottomBar = { DashboardBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) },
+        containerColor = backgroundColor
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState()), // Added scroll for small screens
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("Set Fare & Preferences", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+
+            // --- Fare Slider Section ---
+            Text("PKR ${fare.toInt()}", fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, color = actionTealColor)
+            Slider(
+                value = fare,
+                onValueChange = { fare = it },
+                valueRange = 100f..50000f,
+                colors = SliderDefaults.colors(thumbColor = actionTealColor, activeTrackColor = actionTealColor)
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+            // --- Shipment Type (Radio Buttons) ---
+            Text("Booking Type", fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                RadioButton(
+                    selected = viewModel.plannedShipmentType == "Shared",
+                    onClick = { viewModel.plannedShipmentType = "Shared" }
+                )
+                Text("Shared")
+                Spacer(modifier = Modifier.width(16.dp))
+                RadioButton(
+                    selected = viewModel.plannedShipmentType == "Full",
+                    onClick = { viewModel.plannedShipmentType = "Full" }
+                )
+                Text("Full Load")
             }
-            Spacer(modifier = Modifier.height(32.dp))
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // --- Preferences Toggles ---
+            PreferenceToggle("Accept Fragile Packages", viewModel.plannedIsFragile) { viewModel.plannedIsFragile = it }
+            PreferenceToggle("Accept Liquid Packages", viewModel.plannedIsLiquid) { viewModel.plannedIsLiquid = it }
+            PreferenceToggle("Accept Flammable Packages", viewModel.plannedIsFlammable) { viewModel.plannedIsFlammable = it }
+            PreferenceToggle("Keep Upright", viewModel.plannedKeepUpright) { viewModel.plannedKeepUpright = it }
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            if (isLoading) {
+                CircularProgressIndicator(color = actionTealColor)
+            } else {
+                Button(
+                    onClick = { onSave(fare.toDouble()) },
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Text("Complete Setup")
+                }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+}
+
+@Composable
+fun PreferenceToggle(label: String, isChecked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(label)
+        Switch(
+            checked = isChecked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(checkedThumbColor = actionTealColor)
+        )
     }
 }
 

@@ -11,7 +11,9 @@ data class DriverRequestsResponse(
 data class RequestData(
     val request_id: Int,
     val shipment_id: Int,
-    val status: String
+    val status: String,
+    val route_id: Int,
+    val fare: Double
 )
 
 data class ShipmentData(
@@ -26,7 +28,20 @@ data class ShipmentData(
     val pickup_address: String,
     val customer_id: Int,
     val package_count: Int,
-    val total_weight: Double
+    val total_weight: Double,
+    val packages: List<PackageDto> = emptyList()  // <-- added
+)
+
+data class PackageDto(
+    val shipment_id: Int,
+    val name: String,
+    val weight: Double,
+    val length: Double,
+    val width: Double,
+    val height: Double,
+    val quantity: Int,
+    val color: String,
+    val tagNo: String
 )
 
 // --- CUSTOMER MODELS ---
@@ -134,17 +149,29 @@ data class CompleteShipmentRequest(
     val recipient_lname: String?,
     val recipient_contact: String,
     val instructionsMessage: String?,
-    val booking_date: String
+    val booking_date: String,
+    val shipment_radius: Double,
+    val shipment_type: String
 )
+
 data class ShipmentDto(
-    @SerializedName("shipment_id") val shipmentId: Int,
-    @SerializedName("pickup_address") val pickupAddress: String,
-    @SerializedName("delivery_address") val deliveryAddress: String,
-    @SerializedName("status") val status: String,
-    @SerializedName("sender_name") val senderName: String,
-    @SerializedName("sender_contact") val senderContact: String,
-    @SerializedName("total_weight") val totalWeight: Double
+    @SerializedName(value = "shipment_id", alternate = ["ShipmentId"]) val shipmentId: Int,
+    @SerializedName(value = "pickup_address", alternate = ["PickupAddress"]) val pickupAddress: String,
+    @SerializedName(value = "delivery_address", alternate = ["DeliveryAddress"]) val deliveryAddress: String,
+    @SerializedName(value = "status", alternate = ["Status"]) val status: String,
+    @SerializedName(value = "sender_name", alternate = ["SenderName"]) val senderName: String,
+    @SerializedName(value = "sender_contact", alternate = ["SenderContact"]) val senderContact: String,
+    @SerializedName(value = "total_weight", alternate = ["TotalWeight"]) val totalWeight: Double,
+    @SerializedName(value = "strict", alternate = ["Strict"]) val strict: Boolean,
+    @SerializedName(value = "recipient_fname", alternate = ["RecipientFname"]) val recipientFname: String?,
+    @SerializedName(value = "recipient_lname", alternate = ["RecipientLname"]) val recipientLname: String?,
+    @SerializedName(value = "recipient_contact", alternate = ["RecipientContact"]) val recipientContact: String?,
+    @SerializedName(value = "booking_date", alternate = ["BookingDate"]) val bookingDate: String?,
+    @SerializedName(value = "shipment_radius", alternate = ["ShipmentRadius"]) val shipmentRadius: Double?,
+    @SerializedName(value = "shipment_type", alternate = ["ShipmentType"]) val shipmentType: String?,
+    @SerializedName(value = "packages", alternate = ["Packages"]) val packages: List<PackageCreateItem>?
 )
+
 data class BookingDto(
     val id: Int,
     val status: String,
@@ -183,4 +210,43 @@ data class AvailabilityDto(
 
     @SerializedName("DepartureDate") val departureDate: String? = null,
     @SerializedName("ArrivalDate") val arrivalDate: String? = null,
+)
+
+data class DeclineResponseDto(
+    @SerializedName("message") val message: String
+)
+
+data class AcceptResponseDto(
+    @SerializedName("message") val message: String,
+    @SerializedName("tripId") val tripId: Int,
+    @SerializedName("bookingId") val bookingId: Int
+)
+
+data class BookingData(
+    val booking_id: Int,
+    val shipment_id: Int,
+    val route_id: Int,
+    val trip_id: Int,
+    val status: String,
+    val amount: Double,
+    val pickup_date: String?,
+
+    // Shipment details
+    val pickup_address: String?,
+    val pickup_lat: Double?,
+    val pickup_long: Double?,
+    val delivery_address: String?,
+    val delivery_lat: Double?,
+    val delivery_long: Double?,
+    val sender_name: String?,
+    val sender_contact: String?,
+    val total_weight: Double?,
+    val package_count: Int?,
+
+    // Recipient details
+    val recipient_name: String?,
+    val recipient_contact: String?,
+
+    // Package details
+    val packages: List<PackageDto> = emptyList()
 )

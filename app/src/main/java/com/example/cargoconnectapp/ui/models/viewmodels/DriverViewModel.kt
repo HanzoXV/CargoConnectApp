@@ -1,5 +1,6 @@
 package com.example.cargoconnectapp.ui.models.viewmodels
 
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -8,10 +9,10 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.cargoconnectapp.data.RetrofitClient
-import com.example.cargoconnectapp.ui.models.datamodels.CreateRouteRequest
-import com.example.cargoconnectapp.ui.models.datamodels.DriverRequestsResponse
-import com.example.cargoconnectapp.ui.models.datamodels.RouteData
+import com.example.cargoconnectapp.ui.models.datamodels.*
+import com.example.cargoconnectapp.ui.navigation.screens.ShipmentRequest
 import com.example.cargoconnectapp.ui.models.helpermodels.Dimensions
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import org.osmdroid.util.GeoPoint
 import java.time.LocalDate
@@ -52,12 +53,37 @@ class DriverViewModel : ViewModel() {
     var driverRequests by mutableStateOf<DriverRequestsResponse?>(null)
         private set
 
+    var selectedRequest by mutableStateOf<ShipmentRequest?>(null)
+
+    // ── Booking State ──
+    var pendingBookings by mutableStateOf<List<BookingData>>(emptyList())
+        private set
+    var inTransitBookings by mutableStateOf<List<BookingData>>(emptyList())
+        private set
+    var completedBookings by mutableStateOf<List<BookingData>>(emptyList())
+        private set
+    var canceledBookings by mutableStateOf<List<BookingData>>(emptyList())
+        private set
+
+    var selectedBooking by mutableStateOf<BookingData?>(null)
+
+    // ── Checkpoint Reached State ──
+    var checkpointShipments by mutableStateOf<CheckpointShipmentsResponse?>(null)
+        private set
+
     // ── Route Planning State (Temporary) ──────────────────────────────────────
     
     val plannedPoints = mutableStateListOf<GeoPoint>()
     var plannedDepartureDate by mutableStateOf<LocalDate?>(null)
     var plannedArrivalDate by mutableStateOf<LocalDate?>(null)
     
+    // New Route Attributes
+    var plannedIsFragile by mutableStateOf(false)
+    var plannedIsLiquid by mutableStateOf(false)
+    var plannedIsFlammable by mutableStateOf(false)
+    var plannedKeepUpright by mutableStateOf(false)
+    var plannedShipmentType by mutableStateOf("Shared") // "Full" or "Shared"
+
     // Stores a route template if we are activating an existing one
     var selectedTemplateRoute by mutableStateOf<RouteData?>(null)
 
@@ -66,6 +92,11 @@ class DriverViewModel : ViewModel() {
         plannedDepartureDate = null
         plannedArrivalDate = null
         selectedTemplateRoute = null
+        plannedIsFragile = false
+        plannedIsLiquid = false
+        plannedIsFlammable = false
+        plannedKeepUpright = false
+        plannedShipmentType = "Shared"
     }
 
     fun clearAllData() {
@@ -82,6 +113,13 @@ class DriverViewModel : ViewModel() {
         driverRequests = null
         clearPlannedRoute()
         errorMessage = null
+        selectedRequest = null
+        pendingBookings = emptyList()
+        inTransitBookings = emptyList()
+        completedBookings = emptyList()
+        canceledBookings = emptyList()
+        selectedBooking = null
+        checkpointShipments = null
     }
 
     // ── Fetch functions ───────────────────────────────────────────────────────
@@ -212,6 +250,95 @@ class DriverViewModel : ViewModel() {
                 val response = RetrofitClient.instance.getDriverRequests(driverId)
                 if (response.isSuccessful) {
                     driverRequests = response.body()
+                } else {
+                    errorMessage = response.errorBody()?.string()
+                }
+            } catch (e: Exception) {
+                errorMessage = e.message
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    fun fetchAllBookings(driverId: Int) {
+        viewModelScope.launch {
+            isLoading = true
+            Log.d("DriverViewModel", "Fetching all bookings for driver: $driverId")
+            try {
+                val p = async { RetrofitClient.instance.getConfirmedBookings(driverId) }
+                val i = async { RetrofitClient.instance.getInTransitBookings(driverId) }
+                val co = async { RetrofitClient.instance.getCompletedBookings(driverId) }
+                val ca = async { RetrofitClient.instance.getCanceledBookings(driverId) }
+
+                val resP = p.await()
+                val resI = i.await()
+                val resCo = co.await()
+                val resCa = ca.await()
+
+                if (resP.isSuccessful) pendingBookings = resP.body() ?: emptyList() else Log.e("DriverViewModel", "Pending failed: ${resP.errorBody()?.string()}")
+                if (resI.isSuccessful) inTransitBookings = resI.body() ?: emptyList() else Log.e("DriverViewModel", "InTransit failed: ${resI.errorBody()?.string()}")
+                if (resCo.isSuccessful) completedBookings = resCo.body() ?: emptyList() else Log.e("DriverViewModel", "Completed failed: ${resCo.errorBody()?.string()}")
+                if (resCa.isSuccessful) canceledBookings = resCa.body() ?: emptyList() else Log.e("DriverViewModel", "Canceled failed: ${resCa.errorBody()?.string()}")
+
+                Log.d("DriverViewModel", "Bookings fetched. Pending: ${pendingBookings.size}, InTransit: ${inTransitBookings.size}")
+
+            } catch (e: Exception) {
+                Log.e("DriverViewModel", "Error fetching bookings", e)
+                errorMessage = e.message
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    fun startTrip(checkpointId: Int, driverId: Int, onComplete: () -> Unit = {}) {
+        viewModelScope.launch {
+            isLoading = true
+            try {
+                val response = RetrofitClient.instance.startTrip(checkpointId, driverId)
+                if (response.isSuccessful) {
+                    fetchActiveRoute(driverId)
+                    onComplete()
+                } else {
+                    errorMessage = response.errorBody()?.string()
+                }
+            } catch (e: Exception) {
+                errorMessage = e.message
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    fun fetchShipmentsAtCheckpoint(checkpointId: Int, driverId: Int, onComplete: () -> Unit = {}) {
+        viewModelScope.launch {
+            isLoading = true
+            try {
+                val response = RetrofitClient.instance.getShipmentsAtCheckpoint(checkpointId, driverId)
+                if (response.isSuccessful) {
+                    checkpointShipments = response.body()
+                    onComplete()
+                } else {
+                    errorMessage = response.errorBody()?.string()
+                }
+            } catch (e: Exception) {
+                errorMessage = e.message
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    fun confirmCheckpoint(checkpointId: Int, driverId: Int, onComplete: () -> Unit = {}) {
+        viewModelScope.launch {
+            isLoading = true
+            try {
+                val response = RetrofitClient.instance.confirmCheckpointReached(checkpointId, driverId)
+                if (response.isSuccessful) {
+                    fetchActiveRoute(driverId)
+                    checkpointShipments = null
+                    onComplete()
                 } else {
                     errorMessage = response.errorBody()?.string()
                 }

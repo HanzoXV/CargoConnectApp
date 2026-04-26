@@ -5,7 +5,6 @@ import androidx.annotation.RequiresApi
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavGraph.Companion.findStartDestination
-import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
@@ -21,6 +20,7 @@ import com.example.cargoconnectapp.ui.models.map.getAddressFromGeoPoint
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import androidx.navigation.NavGraphBuilder
 
 @RequiresApi(Build.VERSION_CODES.O)
 fun NavGraphBuilder.driverGraph(
@@ -47,19 +47,62 @@ fun NavGraphBuilder.driverGraph(
 
     // ── HOME ──
     composable<DriverDashboard> { backStackEntry ->
+        val page = backStackEntry.toRoute<DriverDashboard>().page
+        
         LaunchedEffect(Unit) { driverViewModel.fetchActiveRoute(session.roleBasedId) }
 
-        DriverDashboardScreen(
-            currentTab     = session.currentDriverTab,
-            onHomeClick    = { navController.navigateTab(DriverDashboard()) },
-            onOrdersClick  = { navController.navigateTab(DriverShipmentRequest()) },
-            onHistoryClick = { navController.navigateTab(DriverDeliveries()) },
-            onChatClick    = { navController.navigateTab(DriverChat()) },
-            onProfileClick = { navController.navigateTab(DriverProfileScreen()) },
-            onDelayClick   = { navController.navigate(DriverDashboard(DriverDashboardPage.AddDelay)) },
-            onReachedClick = { navController.navigate(DriverDashboard(DriverDashboardPage.ConfirmDelivery)) },
-            driverViewModel = driverViewModel
-        )
+        when (page) {
+            DriverDashboardPage.TripInfo,
+            DriverDashboardPage.TruckInfo -> {
+                DriverDashboardScreen(
+                    currentTab     = session.currentDriverTab,
+                    onHomeClick    = { navController.navigateTab(DriverDashboard()) },
+                    onOrdersClick  = { navController.navigateTab(DriverShipmentRequest()) },
+                    onHistoryClick = { navController.navigateTab(DriverDeliveries()) },
+                    onChatClick    = { navController.navigateTab(DriverChat()) },
+                    onProfileClick = { navController.navigateTab(DriverProfileScreen()) },
+                    onDelayClick   = { navController.navigate(DriverDashboard(DriverDashboardPage.AddDelay)) },
+                    onReachedClick = { index ->
+                        val checkpoint = driverViewModel.activeRoute?.checkpoints?.getOrNull(index)
+                        if (checkpoint != null) {
+                            if (index == 0) {
+                                driverViewModel.startTrip(checkpoint.checkpointId ?: 0, session.roleBasedId)
+                            } else {
+                                driverViewModel.fetchShipmentsAtCheckpoint(checkpoint.checkpointId ?: 0, session.roleBasedId) {
+                                    navController.navigate(DriverDashboard(DriverDashboardPage.ConfirmDelivery))
+                                }
+                            }
+                        }
+                    },
+                    driverViewModel = driverViewModel
+                )
+            }
+            DriverDashboardPage.ConfirmDelivery -> {
+                val data = driverViewModel.checkpointShipments
+                if (data != null) {
+                    CheckpointShipmentsScreen(
+                        data = data,
+                        isLoading = driverViewModel.isLoading,
+                        onConfirm = {
+                            driverViewModel.confirmCheckpoint(data.checkpoint_id, session.roleBasedId) {
+                                navController.popBackStack()
+                            }
+                        },
+                        onBack = { navController.popBackStack() },
+                        onHomeClick    = { navController.navigateTab(DriverDashboard()) },
+                        onOrdersClick  = { navController.navigateTab(DriverShipmentRequest()) },
+                        onHistoryClick = { navController.navigateTab(DriverDeliveries()) },
+                        onChatClick    = { navController.navigateTab(DriverChat()) },
+                        onProfileClick = { navController.navigateTab(DriverProfileScreen()) }
+                    )
+                } else {
+                    navController.popBackStack()
+                }
+            }
+            DriverDashboardPage.AddDelay -> {
+                // Handle delay screen
+            }
+        }
     }
 
     // ── ORDERS ──
@@ -73,13 +116,20 @@ fun NavGraphBuilder.driverGraph(
         when (page) {
             ShipmentRequestPage.Main -> {
                 val requests = driverViewModel.driverRequests?.shipmentData?.map { shipment ->
+                    val reqData = driverViewModel.driverRequests?.requestsData?.find { it.shipment_id == shipment.shipment_id }
                     ShipmentRequest(
+                        requestId = reqData?.request_id ?: 0,
                         title = "Shipment #${shipment.shipment_id}",
                         route = "${shipment.pickup_address} to ${shipment.delivery_address}",
                         weight = "~${shipment.total_weight} KGs",
                         pickup = "Pickup: ${shipment.pickup_address}",
-                        amount = "Fare: TBD", // Amount not in shipmentData directly
-                        isShared = false
+                        amount = "Fare: ${reqData?.fare ?: "TBD"} PKR",
+                        isShared = false,
+                        totalWeight = shipment.total_weight,
+                        packageCount = shipment.package_count,
+                        pickupAddress = shipment.pickup_address,
+                        deliveryAddress = shipment.delivery_address,
+                        packages = shipment.packages
                     )
                 } ?: emptyList()
 
@@ -91,51 +141,78 @@ fun NavGraphBuilder.driverGraph(
                     onHistoryClick = { navController.navigateTab(DriverDeliveries()) },
                     onChatClick    = { navController.navigateTab(DriverChat()) },
                     onProfileClick = { navController.navigateTab(DriverProfileScreen()) },
-                    onDetailsClick = { navController.navigate(DriverShipmentRequest(ShipmentRequestPage.Details)) },
+                    onDetailsClick = { 
+                        driverViewModel.selectedRequest = it
+                        navController.navigate(DriverShipmentRequest(ShipmentRequestPage.Details)) 
+                    },
                     onAccept       = { navController.popBackStack() },
                     onDecline      = { navController.popBackStack() }
                 )
             }
             ShipmentRequestPage.Details -> {
-                ShipmentRequestDetailScreen(
-                    onBack         = { navController.popBackStack() },
-                    onAccept       = { navController.popBackStack() },
-                    onDecline      = { navController.popBackStack() },
-                    onHomeClick    = { navController.navigateTab(DriverDashboard()) },
-                    onOrdersClick  = { navController.navigateTab(DriverShipmentRequest()) },
-                    onHistoryClick = { navController.navigateTab(DriverDeliveries()) },
-                    onChatClick    = { navController.navigateTab(DriverChat()) },
-                    onProfileClick = { navController.navigateTab(DriverProfileScreen()) }
-                )
+                val selected = driverViewModel.selectedRequest
+                if (selected != null) {
+                    ShipmentRequestDetailScreen(
+                        request = selected,
+                        onBack         = { navController.popBackStack() },
+                        onAccept       = { navController.popBackStack() },
+                        onDecline      = { navController.popBackStack() },
+                        onHomeClick    = { navController.navigateTab(DriverDashboard()) },
+                        onOrdersClick  = { navController.navigateTab(DriverShipmentRequest()) },
+                        onHistoryClick = { navController.navigateTab(DriverDeliveries()) },
+                        onChatClick    = { navController.navigateTab(DriverChat()) },
+                        onProfileClick = { navController.navigateTab(DriverProfileScreen()) }
+                    )
+                } else {
+                    // Fallback or loading
+                    navController.popBackStack()
+                }
             }
         }
     }
 
-    // ── HISTORY ──
+    // ── HISTORY / DELIVERIES ──
     composable<DriverDeliveries> { backStackEntry ->
         val page = backStackEntry.toRoute<DriverDeliveries>().page
+        
+        LaunchedEffect(Unit) {
+            driverViewModel.fetchAllBookings(session.roleBasedId)
+        }
+
         when (page) {
             DeliveryPage.Main -> {
                 CustomersScreen(
+                    pendingBookings = driverViewModel.pendingBookings,
+                    inTransitBookings = driverViewModel.inTransitBookings,
+                    completedBookings = driverViewModel.completedBookings,
+                    canceledBookings = driverViewModel.canceledBookings,
                     currentTab     = session.currentDriverTab,
                     onHomeClick    = { navController.navigateTab(DriverDashboard()) },
                     onOrdersClick  = { navController.navigateTab(DriverShipmentRequest()) },
                     onHistoryClick = { navController.navigateTab(DriverDeliveries()) },
                     onChatClick    = { navController.navigateTab(DriverChat()) },
                     onProfileClick = { navController.navigateTab(DriverProfileScreen()) },
-                    onDetailsClick = { navController.navigate(DriverDeliveries(DeliveryPage.Details)) },
-                    onConfirmClick = { navController.popBackStack() }
+                    onDetailsClick = { 
+                        driverViewModel.selectedBooking = it
+                        navController.navigate(DriverDeliveries(DeliveryPage.Details)) 
+                    }
                 )
             }
             DeliveryPage.Details -> {
-                CustomerShipmentsDetailScreen(
-                    onBack         = { navController.popBackStack() },
-                    onHomeClick    = { navController.navigateTab(DriverDashboard()) },
-                    onOrdersClick  = { navController.navigateTab(DriverShipmentRequest()) },
-                    onHistoryClick = { navController.navigateTab(DriverDeliveries()) },
-                    onChatClick    = { navController.navigateTab(DriverChat()) },
-                    onProfileClick = { navController.navigateTab(DriverProfileScreen()) }
-                )
+                val selected = driverViewModel.selectedBooking
+                if (selected != null) {
+                    DriverBookingDetailScreen(
+                        booking = selected,
+                        onBack         = { navController.popBackStack() },
+                        onHomeClick    = { navController.navigateTab(DriverDashboard()) },
+                        onOrdersClick  = { navController.navigateTab(DriverShipmentRequest()) },
+                        onHistoryClick = { navController.navigateTab(DriverDeliveries()) },
+                        onChatClick    = { navController.navigateTab(DriverChat()) },
+                        onProfileClick = { navController.navigateTab(DriverProfileScreen()) }
+                    )
+                } else {
+                    navController.popBackStack()
+                }
             }
         }
     }
@@ -292,6 +369,7 @@ fun NavGraphBuilder.driverGraph(
             DriverProfilePage.EditInformation -> {
                 CreateRouteStep3(
                     isLoading      = driverViewModel.isLoading,
+                    viewModel = driverViewModel,
                     onSave         = { fare ->
                         val template = driverViewModel.selectedTemplateRoute
                         if (template != null) {
@@ -301,6 +379,11 @@ fun NavGraphBuilder.driverGraph(
                                 arrivalDate   = driverViewModel.plannedArrivalDate?.format(DateTimeFormatter.ISO_LOCAL_DATE) ?: "",
                                 baseFare      = fare,
                                 activateNow   = driverViewModel.activeRoute == null,
+                                isFragile     = driverViewModel.plannedIsFragile,
+                                isLiquid      = driverViewModel.plannedIsLiquid,
+                                isFlammable   = driverViewModel.plannedIsFlammable,
+                                keepUpright   = driverViewModel.plannedKeepUpright,
+                                shipmentType  = driverViewModel.plannedShipmentType,
                                 points        = template.checkpoints?.map { cp ->
                                     RouteCheckpointRequest(
                                         name = cp.name ?: "",
@@ -323,6 +406,11 @@ fun NavGraphBuilder.driverGraph(
                                 arrivalDate   = driverViewModel.plannedArrivalDate?.format(DateTimeFormatter.ISO_LOCAL_DATE) ?: "",
                                 baseFare      = fare,
                                 activateNow   = driverViewModel.activeRoute == null,
+                                isFragile     = driverViewModel.plannedIsFragile,
+                                isLiquid      = driverViewModel.plannedIsLiquid,
+                                isFlammable   = driverViewModel.plannedIsFlammable,
+                                keepUpright   = driverViewModel.plannedKeepUpright,
+                                shipmentType  = driverViewModel.plannedShipmentType,
                                 points        = driverViewModel.plannedPoints.mapIndexed { index, gp ->
                                     RouteCheckpointRequest(
                                         name       = getAddressFromGeoPoint(context, gp),
