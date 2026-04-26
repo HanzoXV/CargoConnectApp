@@ -17,6 +17,8 @@ import kotlinx.coroutines.launch
 import org.osmdroid.util.GeoPoint
 import java.time.LocalDate
 
+enum class RouteTarget { ACTIVE, NEXT }
+
 class DriverViewModel : ViewModel() {
 
     // ── State ─────────────────────────────────────────────────────────────────
@@ -48,6 +50,8 @@ class DriverViewModel : ViewModel() {
     var isLoading by mutableStateOf(false)
         private set
     var errorMessage by mutableStateOf<String?>(null)
+        private set
+    var successMessage by mutableStateOf<String?>(null)
         private set
 
     var driverRequests by mutableStateOf<DriverRequestsResponse?>(null)
@@ -86,6 +90,9 @@ class DriverViewModel : ViewModel() {
 
     // Stores a route template if we are activating an existing one
     var selectedTemplateRoute by mutableStateOf<RouteData?>(null)
+    
+    // Target position for the new/selected route
+    var routeActivationTarget by mutableStateOf(RouteTarget.ACTIVE) 
 
     fun clearPlannedRoute() {
         plannedPoints.clear()
@@ -112,7 +119,9 @@ class DriverViewModel : ViewModel() {
         distances.clear()
         driverRequests = null
         clearPlannedRoute()
+        routeActivationTarget = RouteTarget.ACTIVE
         errorMessage = null
+        successMessage = null
         selectedRequest = null
         pendingBookings = emptyList()
         inTransitBookings = emptyList()
@@ -164,10 +173,10 @@ class DriverViewModel : ViewModel() {
                 val response = RetrofitClient.instance.getRoutes(driverId)
                 if (response.isSuccessful) {
                     val all = response.body() ?: emptyList()
-                    // Filter and take 4 most recent
+                    // Filter and take 10 most recent
                     pastRoutes = all.filter {
                         it.isActive != true && it.isNextRoute != true
-                    }.sortedByDescending { it.routeId }.take(4)
+                    }.sortedByDescending { it.routeId }.take(10)
                 } else errorMessage = response.errorBody()?.string()
             } catch (e: Exception) {
                 errorMessage = e.message
@@ -181,16 +190,36 @@ class DriverViewModel : ViewModel() {
         viewModelScope.launch {
             isLoading = true
             try {
+                Log.d("DriverViewModel", "Saving route with activateNow=${request.activateNow}")
                 val response = RetrofitClient.instance.saveRoute(request)
                 if (response.isSuccessful) {
+                    val savedData = response.body()
+                    val routeId = savedData?.routeId ?: -1
+                    Log.d("DriverViewModel", "Route saved. ID: $routeId")
+                    
+                    if (routeId != -1) {
+                        if (routeActivationTarget == RouteTarget.ACTIVE) {
+                            Log.d("DriverViewModel", "Explicitly activating route $routeId")
+                            RetrofitClient.instance.activateRoute(routeId)
+                        } else {
+                            Log.d("DriverViewModel", "Explicitly scheduling next route $routeId")
+                            RetrofitClient.instance.scheduleNextRoute(routeId)
+                        }
+                    }
+
+                    // Cleanup and refresh
                     clearPlannedRoute()
                     fetchActiveRoute(driverId)
                     fetchNextRoute(driverId)
                     fetchAllRoutes(driverId)
                     onComplete()
-                } else errorMessage = response.errorBody()?.string()
+                } else {
+                    errorMessage = response.errorBody()?.string()
+                    Log.e("DriverViewModel", "Save route failed: $errorMessage")
+                }
             } catch (e: Exception) {
                 errorMessage = e.message
+                Log.e("DriverViewModel", "Exception saving route", e)
             } finally {
                 isLoading = false
             }
@@ -252,6 +281,46 @@ class DriverViewModel : ViewModel() {
                     driverRequests = response.body()
                 } else {
                     errorMessage = response.errorBody()?.string()
+                }
+            } catch (e: Exception) {
+                errorMessage = e.message
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    fun acceptShipmentRequest(requestId: Int, driverId: Int, onComplete: () -> Unit = {}) {
+        viewModelScope.launch {
+            isLoading = true
+            try {
+                val response = RetrofitClient.instance.acceptRequest(requestId)
+                if (response.isSuccessful) {
+                    successMessage = response.body()?.message ?: "Request accepted successfully"
+                    fetchDriverRequests(driverId)
+                    onComplete()
+                } else {
+                    errorMessage = response.errorBody()?.string() ?: "Failed to accept request"
+                }
+            } catch (e: Exception) {
+                errorMessage = e.message
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    fun declineShipmentRequest(requestId: Int, driverId: Int, onComplete: () -> Unit = {}) {
+        viewModelScope.launch {
+            isLoading = true
+            try {
+                val response = RetrofitClient.instance.declineRequest(requestId)
+                if (response.isSuccessful) {
+                    successMessage = response.body()?.message ?: "Request declined successfully"
+                    fetchDriverRequests(driverId)
+                    onComplete()
+                } else {
+                    errorMessage = response.errorBody()?.string() ?: "Failed to decline request"
                 }
             } catch (e: Exception) {
                 errorMessage = e.message
@@ -370,6 +439,9 @@ class DriverViewModel : ViewModel() {
         distances.addAll(values)
     }
 
-    fun clearError() { errorMessage = null }
+    fun clearError() { 
+        errorMessage = null
+        successMessage = null
+    }
 
 }

@@ -456,6 +456,23 @@ fun NewShipmentRouteScreen(
                             Text("Strict Schedule Only", fontWeight = FontWeight.Bold)
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Shipment Type", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    GlassCard {
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).clickable { customerViewModel.shipmentType = "Full" }) {
+                                RadioButton(selected = customerViewModel.shipmentType == "Full", onClick = { customerViewModel.shipmentType = "Full" })
+                                Text("Full", fontSize = 14.sp)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).clickable { customerViewModel.shipmentType = "Shared" }) {
+                                RadioButton(selected = customerViewModel.shipmentType == "Shared", onClick = { customerViewModel.shipmentType = "Shared" })
+                                Text("Shared", fontSize = 14.sp)
+                            }
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(24.dp))
                 }
 

@@ -40,8 +40,8 @@ data class PackageDto(
     val width: Double,
     val height: Double,
     val quantity: Int,
-    val color: String,
-    val tagNo: String
+    val color: String?,
+    val tagNo: String?
 )
 
 // --- CUSTOMER MODELS ---

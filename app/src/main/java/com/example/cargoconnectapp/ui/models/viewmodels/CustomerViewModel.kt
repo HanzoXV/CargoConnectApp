@@ -106,6 +106,7 @@ class CustomerViewModel : ViewModel() {
         availableTrucks.clear()
         errorMessage = null
         successMessage = null
+        shipmentType = "Full"
     }
 
     // ── API Spot 1: Dashboard Load ───────────────────────────────────────────

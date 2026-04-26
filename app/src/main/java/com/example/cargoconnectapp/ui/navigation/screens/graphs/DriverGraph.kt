@@ -1,6 +1,7 @@
 package com.example.cargoconnectapp.ui.navigation.screens.graphs
 
 import android.os.Build
+import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
@@ -14,6 +15,7 @@ import com.example.cargoconnectapp.ui.models.datamodels.RouteData
 import com.example.cargoconnectapp.ui.models.destinations.*
 import com.example.cargoconnectapp.ui.models.viewmodels.AuthViewModel
 import com.example.cargoconnectapp.ui.models.viewmodels.DriverViewModel
+import com.example.cargoconnectapp.ui.models.viewmodels.RouteTarget
 import com.example.cargoconnectapp.ui.models.viewmodels.UserSessionViewModel
 import com.example.cargoconnectapp.ui.navigation.screens.*
 import com.example.cargoconnectapp.ui.models.map.getAddressFromGeoPoint
@@ -145,8 +147,11 @@ fun NavGraphBuilder.driverGraph(
                         driverViewModel.selectedRequest = it
                         navController.navigate(DriverShipmentRequest(ShipmentRequestPage.Details)) 
                     },
-                    onAccept       = { navController.popBackStack() },
-                    onDecline      = { navController.popBackStack() }
+                    onAccept       = { driverViewModel.acceptShipmentRequest(it.requestId, session.roleBasedId) },
+                    onDecline      = { driverViewModel.declineShipmentRequest(it.requestId, session.roleBasedId) },
+                    successMessage = driverViewModel.successMessage,
+                    errorMessage   = driverViewModel.errorMessage,
+                    onClearMessages = { driverViewModel.clearError() }
                 )
             }
             ShipmentRequestPage.Details -> {
@@ -155,13 +160,16 @@ fun NavGraphBuilder.driverGraph(
                     ShipmentRequestDetailScreen(
                         request = selected,
                         onBack         = { navController.popBackStack() },
-                        onAccept       = { navController.popBackStack() },
-                        onDecline      = { navController.popBackStack() },
+                        onAccept       = { driverViewModel.acceptShipmentRequest(selected.requestId, session.roleBasedId) { navController.popBackStack() } },
+                        onDecline      = { driverViewModel.declineShipmentRequest(selected.requestId, session.roleBasedId) { navController.popBackStack() } },
                         onHomeClick    = { navController.navigateTab(DriverDashboard()) },
                         onOrdersClick  = { navController.navigateTab(DriverShipmentRequest()) },
                         onHistoryClick = { navController.navigateTab(DriverDeliveries()) },
                         onChatClick    = { navController.navigateTab(DriverChat()) },
-                        onProfileClick = { navController.navigateTab(DriverProfileScreen()) }
+                        onProfileClick = { navController.navigateTab(DriverProfileScreen()) },
+                        successMessage = driverViewModel.successMessage,
+                        errorMessage   = driverViewModel.errorMessage,
+                        onClearMessages = { driverViewModel.clearError() }
                     )
                 } else {
                     // Fallback or loading
@@ -286,8 +294,14 @@ fun NavGraphBuilder.driverGraph(
                     activeVia      = driverViewModel.activeRoute?.checkpoints?.getOrNull(1)?.name?.let { viaName -> "via $viaName" },
                     nextRoute      = formatRouteLabel(driverViewModel.nextRoute),
                     currentTab     = session.currentDriverTab,
-                    onTapToChange  = { navController.navigate(DriverProfileScreen(DriverProfilePage.SelectRoute)) },
-                    onTapToChangeUpcoming = { navController.navigate(DriverProfileScreen(DriverProfilePage.SelectRoute)) },
+                    onTapToChange  = { 
+                        driverViewModel.routeActivationTarget = RouteTarget.ACTIVE
+                        navController.navigate(DriverProfileScreen(DriverProfilePage.SelectRoute)) 
+                    },
+                    onTapToChangeUpcoming = { 
+                        driverViewModel.routeActivationTarget = RouteTarget.NEXT
+                        navController.navigate(DriverProfileScreen(DriverProfilePage.SelectRoute)) 
+                    },
                     onHomeClick    = { navController.navigateTab(DriverDashboard()) },
                     onOrdersClick  = { navController.navigateTab(DriverShipmentRequest()) },
                     onHistoryClick = { navController.navigateTab(DriverDeliveries()) },
@@ -312,7 +326,10 @@ fun NavGraphBuilder.driverGraph(
                             navController.navigate(DriverProfileScreen(DriverProfilePage.EstimatedDelivery))
                         }
                     },
-                    onCreateNewRoute = { navController.navigate(DriverProfileScreen(DriverProfilePage.AddNewRoute)) },
+                    onCreateNewRoute = { 
+                        driverViewModel.clearPlannedRoute()
+                        navController.navigate(DriverProfileScreen(DriverProfilePage.AddNewRoute)) 
+                    },
                     onHomeClick      = { navController.navigateTab(DriverDashboard()) },
                     onOrdersClick    = { navController.navigateTab(DriverShipmentRequest()) },
                     onHistoryClick   = { navController.navigateTab(DriverDeliveries()) },
@@ -344,7 +361,7 @@ fun NavGraphBuilder.driverGraph(
                 }
                 
                 // minDate is either active route's end or today
-                val minDate = if (driverViewModel.activeRoute != null) {
+                val minDate = if (driverViewModel.activeRoute != null && driverViewModel.routeActivationTarget == RouteTarget.NEXT) {
                     activeEnd?.plusDays(1) ?: LocalDate.now()
                 } else {
                     LocalDate.now()
@@ -369,16 +386,20 @@ fun NavGraphBuilder.driverGraph(
             DriverProfilePage.EditInformation -> {
                 CreateRouteStep3(
                     isLoading      = driverViewModel.isLoading,
-                    viewModel = driverViewModel,
+                    viewModel      = driverViewModel,
                     onSave         = { fare ->
                         val template = driverViewModel.selectedTemplateRoute
+                        val activateNow = driverViewModel.routeActivationTarget == RouteTarget.ACTIVE
+                        
+                        Log.d("DriverGraph", "Saving route. Target: ${driverViewModel.routeActivationTarget}, activateNow: $activateNow")
+
                         if (template != null) {
                             val request = CreateRouteRequest(
                                 driverId      = session.roleBasedId,
                                 departureDate = driverViewModel.plannedDepartureDate?.format(DateTimeFormatter.ISO_LOCAL_DATE) ?: "",
                                 arrivalDate   = driverViewModel.plannedArrivalDate?.format(DateTimeFormatter.ISO_LOCAL_DATE) ?: "",
                                 baseFare      = fare,
-                                activateNow   = driverViewModel.activeRoute == null,
+                                activateNow   = activateNow,
                                 isFragile     = driverViewModel.plannedIsFragile,
                                 isLiquid      = driverViewModel.plannedIsLiquid,
                                 isFlammable   = driverViewModel.plannedIsFlammable,
@@ -405,7 +426,7 @@ fun NavGraphBuilder.driverGraph(
                                 departureDate = driverViewModel.plannedDepartureDate?.format(DateTimeFormatter.ISO_LOCAL_DATE) ?: "",
                                 arrivalDate   = driverViewModel.plannedArrivalDate?.format(DateTimeFormatter.ISO_LOCAL_DATE) ?: "",
                                 baseFare      = fare,
-                                activateNow   = driverViewModel.activeRoute == null,
+                                activateNow   = activateNow,
                                 isFragile     = driverViewModel.plannedIsFragile,
                                 isLiquid      = driverViewModel.plannedIsLiquid,
                                 isFlammable   = driverViewModel.plannedIsFlammable,
