@@ -48,9 +48,15 @@ import com.example.cargoconnectapp.ui.models.datamodels.BookingData
 import com.example.cargoconnectapp.ui.models.datamodels.PackageDto
 import com.example.cargoconnectapp.ui.models.datamodels.CheckpointShipmentsResponse
 import com.example.cargoconnectapp.ui.models.datamodels.CheckpointShipmentData
+import com.example.cargoconnectapp.ui.models.datamodels.CreateRouteRequest
+import com.example.cargoconnectapp.ui.models.datamodels.NotificationDto
+import com.example.cargoconnectapp.ui.models.datamodels.RouteCheckpointRequest
+import com.example.cargoconnectapp.ui.models.helpermodels.PackageColorPool
 import com.example.cargoconnectapp.ui.models.viewmodels.UserSessionViewModel
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.YearMonth
+import java.time.format.DateTimeFormatter
 
 // ─────────────────────────────────────────────
 // MODELS & DATA
@@ -86,12 +92,6 @@ data class ChatContact(
     val time: String,
     val hasUnread: Boolean,
     val isSupport: Boolean = false
-)
-
-data class NotificationItem(
-    val message: String,
-    val time: String,
-    val hasUnread: Boolean
 )
 
 data class ShipmentPackage(
@@ -247,6 +247,12 @@ fun DriverDashboardScreen(
     var selectedTab by remember { mutableStateOf("Trip Info") }
     val calculatedDistances = remember { mutableStateListOf<Double>() }
 
+    val tripStarted = activeRoute?.checkpoints?.any { it.reached == true } == true
+    val nextCheckpointData = checkpoints.firstOrNull { it.reached != true }
+    val nextCheckpointGeo = if (nextCheckpointData?.latitude != null && nextCheckpointData.longitude != null)
+        GeoPoint(nextCheckpointData.latitude, nextCheckpointData.longitude) else null
+
+
     Scaffold(
         bottomBar = {
             DashboardBottomBar(
@@ -269,7 +275,7 @@ fun DriverDashboardScreen(
                 .verticalScroll(rememberScrollState())
         ) {
             Spacer(modifier = Modifier.height(32.dp))
-            
+
             // Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -334,7 +340,7 @@ fun DriverDashboardScreen(
                                 Icon(Icons.Default.Map, contentDescription = null, tint = actionTealColor, modifier = Modifier.size(20.dp))
                             }
                             Spacer(modifier = Modifier.height(16.dp))
-                            
+
                             Box(modifier = Modifier.height(200.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)))   {
                                 val geoPoints = checkpoints.mapNotNull { cp ->
                                     if (cp.latitude != null && cp.longitude != null) GeoPoint(cp.latitude, cp.longitude) else null
@@ -347,7 +353,8 @@ fun DriverDashboardScreen(
                                     OSMContainer(
                                         points = geoPoints,
                                         onDistancesCalculated = { calculatedDistances.clear(); calculatedDistances.addAll(it) },
-                                        onMapClick = {}, onMapLongClick = {}
+                                        onMapClick = {}, onMapLongClick = {},
+                                        isNavigation = true
                                     )
                                 }
                             }
@@ -357,10 +364,10 @@ fun DriverDashboardScreen(
                             val firstUnreachedIndex = checkpoints.indexOfFirst { it.reached != true }
 
                             checkpoints.forEachIndexed { index, checkpoint ->
-                                val dist = calculatedDistances.getOrNull(index)?.let { 
+                                val dist = calculatedDistances.getOrNull(index)?.let {
                                     if (it < 1.0) "${(it * 1000).toInt()}m" else "%.1f km".format(it)
                                 } ?: "--"
-                                
+
                                 EnhancedRouteItem(
                                     city = checkpoint.name ?: "Unknown Stop",
                                     distance = dist,
@@ -395,9 +402,9 @@ fun DriverDashboardScreen(
                             val loadPercent = if (driverViewModel.totalCapacity > 0)
                                 driverViewModel.currentCapacity.toFloat() / driverViewModel.totalCapacity else 0f
                             AnimatedProgressBar(progress = loadPercent, color = statusBlueColor, label = "Weight Utilization")
-                            
+
                             Spacer(modifier = Modifier.height(24.dp))
-                            
+
                             EnhancedCounter(
                                 label = "Current Load",
                                 value = "${driverViewModel.currentCapacity} KG",
@@ -1098,6 +1105,9 @@ fun DriverBookingDetailScreen(
 fun CheckpointShipmentsScreen(
     data: CheckpointShipmentsResponse,
     isLoading: Boolean = false,
+    isStartCheckpoint: Boolean = false,  // NEW
+    onPickup: (Int) -> Unit = {},
+    onDeliver: (Int) -> Unit = {},
     onConfirm: () -> Unit = {},
     onBack: () -> Unit = {},
     onHomeClick: () -> Unit = {},
@@ -1107,7 +1117,22 @@ fun CheckpointShipmentsScreen(
     onProfileClick: () -> Unit = {},
     currentTab: DriverDestination = DriverDashboard()
 ) {
-    var selectedSubTab by remember { mutableStateOf("Load") }
+    // For start checkpoint only show Load tab
+    val tabs = if (isStartCheckpoint)
+        listOf("Load (${data.to_load.total})")
+    else
+        listOf("Load (${data.to_load.total})", "Drop (${data.to_drop.total})")
+
+    var selectedSubTab by remember { mutableStateOf(tabs.first()) }
+
+    // For start: only need all pickups done
+    // For others: need both pickups and drops done
+    val allPickedUp = data.to_load.shipments.all { it.status == "In-Transit" }
+    val allDelivered = if (isStartCheckpoint) true
+    else data.to_drop.shipments.all { it.status == "Completed" }
+    val canConfirm = allPickedUp && allDelivered
+
+    val confirmButtonText = if (isStartCheckpoint) "Confirm Start" else "Confirm Reached"
 
     Scaffold(
         bottomBar = {
@@ -1134,12 +1159,15 @@ fun CheckpointShipmentsScreen(
             }
             Spacer(modifier = Modifier.height(24.dp))
             Text(data.checkpoint_name, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
-            Text("Checkpoint Shipment Log", fontSize = 14.sp, color = Color.Gray)
-            
+            Text(
+                if (isStartCheckpoint) "Load all packages before starting" else "Checkpoint Shipment Log",
+                fontSize = 14.sp, color = Color.Gray
+            )
+
             Spacer(modifier = Modifier.height(24.dp))
 
             InteractiveTabRow(
-                tabs = listOf("Load", "Drop"),
+                tabs = tabs,
                 selectedTab = selectedSubTab,
                 onTabSelected = { selectedSubTab = it }
             )
@@ -1147,13 +1175,20 @@ fun CheckpointShipmentsScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             Box(modifier = Modifier.weight(1f)) {
-                if (selectedSubTab == "Load") {
+                if (selectedSubTab.startsWith("Load")) {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxSize()) {
                         if (data.to_load.shipments.isEmpty()) {
                             item { Text("No pickups at this stop.", color = Color.Gray, fontSize = 13.sp) }
                         } else {
                             itemsIndexed(data.to_load.shipments) { _, shipment ->
-                                ShipmentDetailedCard(shipment, statusOrangeColor, "Pickup From")
+                                ShipmentActionCard(
+                                    shipment = shipment,
+                                    color = statusOrangeColor,
+                                    label = "Pickup From",
+                                    actionLabel = if (shipment.status == "In-Transit") "✓ Picked Up" else "Pickup",
+                                    actionEnabled = shipment.status == "Assigned",
+                                    onAction = { onPickup(shipment.booking_id) }
+                                )
                             }
                         }
                     }
@@ -1163,7 +1198,14 @@ fun CheckpointShipmentsScreen(
                             item { Text("No drop-offs at this stop.", color = Color.Gray, fontSize = 13.sp) }
                         } else {
                             itemsIndexed(data.to_drop.shipments) { _, shipment ->
-                                ShipmentDetailedCard(shipment, statusBlueColor, "Deliver To")
+                                ShipmentActionCard(
+                                    shipment = shipment,
+                                    color = statusBlueColor,
+                                    label = "Deliver To",
+                                    actionLabel = if (shipment.status == "Completed") "✓ Delivered" else "Deliver",
+                                    actionEnabled = shipment.status == "In-Transit",
+                                    onAction = { onDeliver(shipment.booking_id) }
+                                )
                             }
                         }
                     }
@@ -1171,17 +1213,35 @@ fun CheckpointShipmentsScreen(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
-            
+
+            if (!canConfirm) {
+                Text(
+                    text = when {
+                        !allPickedUp -> "Pick up all shipments to ${if (isStartCheckpoint) "start" else "confirm"}"
+                        !allDelivered -> "Deliver all shipments to confirm"
+                        else -> ""
+                    },
+                    fontSize = 12.sp,
+                    color = Color.Gray,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                )
+            }
+
             if (isLoading) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally).padding(vertical = 16.dp))
             } else {
                 Button(
                     onClick = onConfirm,
+                    enabled = canConfirm,
                     modifier = Modifier.fillMaxWidth().height(56.dp).padding(bottom = 12.dp),
                     shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = actionTealColor,
+                        disabledContainerColor = Color.Gray.copy(alpha = 0.3f)
+                    )
                 ) {
-                    Text("Confirm Reached", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(confirmButtonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             }
             Spacer(modifier = Modifier.height(8.dp))
@@ -1190,8 +1250,109 @@ fun CheckpointShipmentsScreen(
 }
 
 @Composable
+fun ShipmentActionCard(
+    shipment: CheckpointShipmentData,
+    color: Color,
+    label: String,
+    actionLabel: String,
+    actionEnabled: Boolean,
+    onAction: () -> Unit
+) {
+    val isDone = !actionEnabled
+    GlassCard(modifier = Modifier.padding(vertical = 6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Surface(
+                modifier = Modifier.size(40.dp),
+                shape = RoundedCornerShape(8.dp),
+                color = if (isDone) Color.Gray.copy(alpha = 0.1f) else color.copy(alpha = 0.1f)
+            ) {
+                Icon(
+                    Icons.Default.Inventory2,
+                    null,
+                    modifier = Modifier.padding(8.dp),
+                    tint = if (isDone) Color.Gray else color
+                )
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Shipment #${shipment.shipment_id}", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Text("${shipment.total_weight} KG • ${shipment.package_count ?: 0} units", fontSize = 12.sp, color = Color.Gray)
+            }
+            Button(
+                onClick = onAction,
+                enabled = actionEnabled,
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = color,
+                    disabledContainerColor = Color.Gray.copy(alpha = 0.2f),
+                    disabledContentColor = Color.Gray
+                ),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                modifier = Modifier.height(36.dp)
+            ) {
+                Text(actionLabel, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+        HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f))
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text(label, fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+        Text(shipment.sender_name ?: "N/A", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+        Text(shipment.sender_contact ?: "N/A", fontSize = 13.sp, color = actionTealColor)
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.Top) {
+            Icon(Icons.Default.PinDrop, null, modifier = Modifier.size(14.dp), tint = Color.Gray)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                if (label == "Pickup From") (shipment.pickup_address ?: "N/A") else (shipment.delivery_address ?: "N/A"),
+                fontSize = 12.sp,
+                color = textThemeColor.copy(alpha = 0.7f)
+            )
+        }
+
+        // Packages
+        if (shipment.packages.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f))
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Packages", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(8.dp))
+            shipment.packages.forEach { pkg ->
+                val pkgColor = PackageColorPool.getColor(pkg.color)
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = pkgColor.copy(alpha = 0.12f)
+                ) {
+                    Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(modifier = Modifier.size(12.dp).clip(CircleShape).background(pkgColor))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(pkg.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Qty: ${pkg.quantity} • ${pkg.weight} KG", fontSize = 12.sp, color = Color.Gray)
+                        }
+                        Surface(shape = RoundedCornerShape(6.dp), color = pkgColor.copy(alpha = 0.2f)) {
+                            Text(
+                                pkg.tagNo ?: "No Tag",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = pkgColor
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun ShipmentDetailedCard(
-    shipment: CheckpointShipmentData, 
+    shipment: CheckpointShipmentData,
     color: Color,
     label: String
 ) {
@@ -1206,19 +1367,87 @@ fun ShipmentDetailedCard(
                 Text("${shipment.total_weight} KG • ${shipment.package_count ?: 0} units", fontSize = 12.sp, color = Color.Gray)
             }
         }
+
         Spacer(modifier = Modifier.height(12.dp))
         HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f))
         Spacer(modifier = Modifier.height(12.dp))
-        
+
         Text(label, fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
         Text(shipment.sender_name ?: "N/A", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
         Text(shipment.sender_contact ?: "N/A", fontSize = 13.sp, color = actionTealColor)
-        
+
         Spacer(modifier = Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.Top) {
             Icon(Icons.Default.PinDrop, null, modifier = Modifier.size(14.dp), tint = Color.Gray)
             Spacer(modifier = Modifier.width(8.dp))
-            Text(if(label == "Pickup From") (shipment.pickup_address ?: "N/A") else (shipment.delivery_address ?: "N/A"), fontSize = 12.sp, color = textThemeColor.copy(alpha = 0.7f))
+            Text(
+                if (label == "Pickup From") (shipment.pickup_address ?: "N/A") else (shipment.delivery_address ?: "N/A"),
+                fontSize = 12.sp,
+                color = textThemeColor.copy(alpha = 0.7f)
+            )
+        }
+
+        // Packages list
+        if (shipment.packages.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f))
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Packages", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            shipment.packages.forEach { pkg ->
+                val pkgColor = PackageColorPool.getColor(pkg.color)
+
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = pkgColor.copy(alpha = 0.12f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Color dot
+                        Box(
+                            modifier = Modifier
+                                .size(12.dp)
+                                .clip(CircleShape)
+                                .background(pkgColor)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(pkg.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(
+                                "Qty: ${pkg.quantity} • ${pkg.weight} KG",
+                                fontSize = 12.sp,
+                                color = Color.Gray
+                            )
+                            Text(
+                                "${pkg.length} x ${pkg.width} x ${pkg.height} cm",
+                                fontSize = 11.sp,
+                                color = Color.Gray
+                            )
+                        }
+
+                        // Tag badge
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = pkgColor.copy(alpha = 0.2f)
+                        ) {
+                            Text(
+                                pkg.tagNo ?: "No Tag",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = pkgColor
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1310,7 +1539,7 @@ fun CustomerShipmentsDetailScreen(
 @Composable
 fun ActivityScreen(
     chats: List<ChatContact> = emptyList(),
-    notifications: List<NotificationItem> = emptyList(),
+    notifications: List<NotificationDto> = emptyList(),
     onChatClick: (ChatContact) -> Unit = {},
     onHomeClick: () -> Unit = {},
     onOrdersClick: () -> Unit = {},
@@ -1400,7 +1629,7 @@ fun EnhancedChatListItem(chat: ChatContact, onClick: () -> Unit) {
 }
 
 @Composable
-fun EnhancedNotificationCard(notif: NotificationItem) {
+fun EnhancedNotificationCard(notif: NotificationDto) {
     GlassCard(modifier = Modifier.padding(vertical = 4.dp)) {
         Row(verticalAlignment = Alignment.Top) {
             Surface(modifier = Modifier.size(40.dp), shape = CircleShape, color = actionTealColor.copy(alpha = 0.1f)) {
@@ -1409,7 +1638,7 @@ fun EnhancedNotificationCard(notif: NotificationItem) {
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(notif.message, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                Text(notif.time, fontSize = 11.sp, color = Color.Gray, modifier = Modifier.padding(top = 4.dp))
+                Text(notif.created_at, fontSize = 11.sp, color = Color.Gray, modifier = Modifier.padding(top = 4.dp))
             }
         }
     }
@@ -1834,7 +2063,7 @@ fun CreateRouteStep1(
 @Composable
 fun CreateRouteStep2(
     minDate: LocalDate? = null,
-    onNext: (LocalDate, LocalDate) -> Unit = { _, _ -> },
+    onNext: (LocalDateTime, LocalDateTime) -> Unit = { _, _ -> },
     onBack: () -> Unit = {},
     onHomeClick: () -> Unit = {},
     onOrdersClick: () -> Unit = {},
@@ -1845,24 +2074,65 @@ fun CreateRouteStep2(
 ) {
     var departureDate by remember { mutableStateOf<LocalDate?>(null) }
     var arrivalDate by remember { mutableStateOf<LocalDate?>(null) }
+    var departureHour by remember { mutableIntStateOf(8) }
+    var departureMinute by remember { mutableIntStateOf(0) }
+    var arrivalHour by remember { mutableIntStateOf(8) }
+    var arrivalMinute by remember { mutableIntStateOf(0) }
     var departureMonth by remember { mutableStateOf(YearMonth.now()) }
     var arrivalMonth by remember { mutableStateOf(YearMonth.now()) }
 
     Scaffold(bottomBar = { DashboardBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) }, containerColor = backgroundColor) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp).verticalScroll(rememberScrollState())) {
             Spacer(modifier = Modifier.height(24.dp))
-            Text("Set Dates", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            Text("Set Dates & Times", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
             Spacer(modifier = Modifier.height(24.dp))
 
             Text("Departure Date", fontWeight = FontWeight.Bold)
-            CalendarView(currentMonth = departureMonth, selectedDate = departureDate, minDate = minDate, onDateSelected = { departureDate = it }, onMonthChanged = { departureMonth = it })
+            CalendarView(
+                currentMonth = departureMonth,
+                selectedDate = departureDate,
+                minDate = minDate,
+                onDateSelected = { departureDate = it },
+                onMonthChanged = { departureMonth = it }
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            TimePickerRow(
+                label = "Departure Time",
+                hour = departureHour,
+                minute = departureMinute,
+                onHourChange = { departureHour = it },
+                onMinuteChange = { departureMinute = it }
+            )
 
             Spacer(modifier = Modifier.height(24.dp))
             Text("Arrival Date", fontWeight = FontWeight.Bold)
-            CalendarView(currentMonth = arrivalMonth, selectedDate = arrivalDate, minDate = departureDate ?: minDate, onDateSelected = { arrivalDate = it }, onMonthChanged = { arrivalMonth = it })
+            CalendarView(
+                currentMonth = arrivalMonth,
+                selectedDate = arrivalDate,
+                minDate = departureDate ?: minDate,
+                onDateSelected = { arrivalDate = it },
+                onMonthChanged = { arrivalMonth = it }
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            TimePickerRow(
+                label = "Arrival Time",
+                hour = arrivalHour,
+                minute = arrivalMinute,
+                onHourChange = { arrivalHour = it },
+                onMinuteChange = { arrivalMinute = it }
+            )
 
             Spacer(modifier = Modifier.height(32.dp))
-            Button(onClick = { onNext(departureDate!!, arrivalDate!!) }, enabled = departureDate != null && arrivalDate != null, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) {
+            Button(
+                onClick = {
+                    val dep = LocalDateTime.of(departureDate!!, java.time.LocalTime.of(departureHour, departureMinute))
+                    val arr = LocalDateTime.of(arrivalDate!!, java.time.LocalTime.of(arrivalHour, arrivalMinute))
+                    onNext(dep, arr)
+                },
+                enabled = departureDate != null && arrivalDate != null,
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp)
+            ) {
                 Text("Continue")
             }
             Spacer(modifier = Modifier.height(32.dp))
@@ -1870,6 +2140,7 @@ fun CreateRouteStep2(
     }
 }
 
+@RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun CreateRouteStep3(
     viewModel: DriverViewModel, // Integrated ViewModel
@@ -1884,7 +2155,30 @@ fun CreateRouteStep3(
     currentTab: DriverDestination = DriverDashboard()
 ) {
     var fare by remember { mutableFloatStateOf(1000f) }
+    val context = LocalContext.current
+    val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")
 
+    LaunchedEffect(Unit) {
+        if (viewModel.previewedPoints.isEmpty()) {
+            // Construct a temporary request to get the initial calculated times
+            val tempRequest = CreateRouteRequest(
+                driverId = 0, // Id doesn't matter for preview math
+                departureDate = viewModel.plannedDepartureDate?.format(formatter) ?: "",
+                arrivalDate = viewModel.plannedArrivalDate?.format(formatter) ?: "",
+                baseFare = fare.toDouble(),
+                shipmentType = viewModel.plannedShipmentType,
+                points = viewModel.plannedPoints.mapIndexed { index, gp ->
+                    RouteCheckpointRequest(
+                        name = getAddressFromGeoPoint(context, gp) ?: "Stop ${index + 1}",
+                        latitude = gp.latitude,
+                        longitude = gp.longitude,
+                        sequenceNo = index + 1
+                    )
+                }
+            )
+            viewModel.fetchRoutePreview(tempRequest)
+        }
+    }
     Scaffold(
         bottomBar = { DashboardBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) },
         containerColor = backgroundColor
@@ -1894,20 +2188,34 @@ fun CreateRouteStep3(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = 24.dp)
-                .verticalScroll(rememberScrollState()), // Added scroll for small screens
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Spacer(modifier = Modifier.height(24.dp))
-            Text("Set Fare & Preferences", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text("Finalize Journey", fontSize = 24.sp, fontWeight = FontWeight.Bold)
 
-            // --- Fare Slider Section ---
+            // --- Fare Slider ---
             Text("PKR ${fare.toInt()}", fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, color = actionTealColor)
-            Slider(
-                value = fare,
-                onValueChange = { fare = it },
-                valueRange = 100f..50000f,
-                colors = SliderDefaults.colors(thumbColor = actionTealColor, activeTrackColor = actionTealColor)
-            )
+            Slider(value = fare, onValueChange = { fare = it }, valueRange = 100f..50000f)
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+            // --- NEW: Review Schedule Section ---
+            Text("Review Schedule", fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
+            Spacer(modifier = Modifier.height(8.dp))
+
+            viewModel.previewedPoints.forEachIndexed { index, point ->
+                CheckpointTimeItem(
+                    point = point,
+                    onTimeClick = {
+                        showDateTimePicker(context, point.estimatedArrival) { newDateTime ->
+                            val updatedList = viewModel.previewedPoints.toMutableList()
+                            updatedList[index] = point.copy(estimatedArrival = newDateTime)
+                            viewModel.updatePreviewedPoints(updatedList)
+                        }
+                    }
+                )
+            }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
@@ -1937,6 +2245,8 @@ fun CreateRouteStep3(
 
             Spacer(modifier = Modifier.weight(1f))
 
+            Spacer(modifier = Modifier.height(24.dp))
+
             if (isLoading) {
                 CircularProgressIndicator(color = actionTealColor)
             } else {
@@ -1945,7 +2255,7 @@ fun CreateRouteStep3(
                     modifier = Modifier.fillMaxWidth().height(56.dp),
                     shape = RoundedCornerShape(16.dp)
                 ) {
-                    Text("Complete Setup")
+                    Text("Confirm & Create Route")
                 }
             }
             Spacer(modifier = Modifier.height(24.dp))
@@ -1971,35 +2281,294 @@ fun PreferenceToggle(label: String, isChecked: Boolean, onCheckedChange: (Boolea
 
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
-fun DeliveryDelayScreen(
-    onBack: () -> Unit = {},
-    onConfirmDelay: (LocalDate?, String, Int, Boolean) -> Unit = { _, _, _, _ -> },
-    onHomeClick: () -> Unit = {},
-    onOrdersClick: () -> Unit = {},
-    onHistoryClick: () -> Unit = {},
-    onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {},
-    currentTab: DriverDestination = DriverDashboard()
+fun DelayReportScreen(
+    viewModel: DriverViewModel,
+    checkpointId: Int,
+    checkpointName: String,
+    onConfirm: () -> Unit = {},
+    onBack: () -> Unit = {}
 ) {
+    var days by remember { mutableIntStateOf(0) }
+    var hours by remember { mutableIntStateOf(0) }
     var reason by remember { mutableStateOf("") }
-    var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
-    var currentMonth by remember { mutableStateOf(YearMonth.now()) }
 
-    Scaffold(bottomBar = { DashboardBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) }, containerColor = backgroundColor) { innerPadding ->
-        Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp).verticalScroll(rememberScrollState())) {
-            Spacer(modifier = Modifier.height(24.dp))
-            Text("Report Delay", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
-            Spacer(modifier = Modifier.height(24.dp))
-            
-            GlassCard {
-                TextField(value = reason, onValueChange = { reason = it }, placeholder = { Text("Reason for delay") }, modifier = Modifier.fillMaxWidth())
+    LaunchedEffect(checkpointId) {
+        viewModel.fetchEstimatedArrival(checkpointId)
+    }
+
+    val rawArrival = viewModel.estimatedArrivalForDelay
+    val displayArrival = remember(rawArrival) {
+        rawArrival?.let {
+            try {
+                val clean = it.trim('"') // API may return quoted string
+                val datePart = clean.substringBefore("T")
+                val timePart = clean.substringAfter("T").substringBeforeLast(":")
+                "$datePart at $timePart"
+            } catch (e: Exception) { it }
+        } ?: "Loading..."
+    }
+
+    Scaffold(
+        containerColor = backgroundColor,
+        topBar = {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = textThemeColor)
+                }
+                Text(
+                    "Report Delay",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = textThemeColor
+                )
             }
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Checkpoint Info Card
+            GlassCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.LocationOn,
+                        contentDescription = null,
+                        tint = actionTealColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text("Checkpoint", fontSize = 12.sp, color = textThemeColor.copy(alpha = 0.5f))
+                        Text(checkpointName, fontWeight = FontWeight.Bold, color = textThemeColor)
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Schedule,
+                        contentDescription = null,
+                        tint = actionTealColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text("Current Estimated Arrival", fontSize = 12.sp, color = textThemeColor.copy(alpha = 0.5f))
+                        Text(displayArrival, fontWeight = FontWeight.Bold, color = textThemeColor)
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
-            CalendarView(currentMonth = currentMonth, selectedDate = selectedDate, onDateSelected = { selectedDate = it }, onMonthChanged = { currentMonth = it })
-            
+
+            // Delay Picker Card
+            GlassCard {
+                Text(
+                    "How much delay?",
+                    fontWeight = FontWeight.Bold,
+                    color = textThemeColor,
+                    fontSize = 16.sp
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "This will push all future checkpoints forward.",
+                    fontSize = 12.sp,
+                    color = textThemeColor.copy(alpha = 0.5f)
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    DelayCounter(
+                        label = "Days",
+                        value = days,
+                        onIncrement = { if (days < 30) days++ },
+                        onDecrement = { if (days > 0) days-- }
+                    )
+                    DelayCounter(
+                        label = "Hours",
+                        value = hours,
+                        onIncrement = { if (hours < 23) hours++ },
+                        onDecrement = { if (hours > 0) hours-- }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Summary
+                val totalHours = days * 24 + hours
+                val summaryColor = if (totalHours > 0) statusRedColor else textThemeColor.copy(alpha = 0.4f)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(summaryColor.copy(alpha = 0.08f))
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        if (totalHours > 0) "Total delay: $totalHours hour${if (totalHours != 1) "s" else ""}"
+                        else "No delay selected",
+                        fontWeight = FontWeight.Bold,
+                        color = summaryColor,
+                        fontSize = 15.sp
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedTextField(
+                value = reason,
+                onValueChange = { reason = it },
+                label = { Text("Reason for delay") },
+                placeholder = { Text("e.g. Road blocked, weather conditions...") },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 2,
+                maxLines = 4,
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = actionTealColor,
+                    focusedLabelColor = actionTealColor,
+                    cursorColor = actionTealColor
+                )
+            )
             Spacer(modifier = Modifier.height(32.dp))
-            Button(onClick = { onConfirmDelay(selectedDate, reason, 12, true) }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) {
-                Text("Confirm Delay")
+
+            if (viewModel.isLoading) {
+                CircularProgressIndicator(color = actionTealColor)
+            } else {
+                Button(
+                    onClick = {
+                        if ((days > 0 || hours > 0) && reason.isNotBlank()) {
+                            viewModel.reportDelay(checkpointId, days, hours, reason) {
+                                onConfirm()
+                            }
+                        }
+                    },
+                    enabled = (days > 0 || hours > 0) && reason.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = statusRedColor,
+                        disabledContainerColor = Color.Gray.copy(alpha = 0.2f),
+                        disabledContentColor = Color.Gray.copy(alpha = 0.5f)
+                    )
+                ) {
+                    Icon(Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Confirm Delay", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+fun DelayCounter(
+    label: String,
+    value: Int,
+    onIncrement: () -> Unit,
+    onDecrement: () -> Unit
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(label, fontSize = 13.sp, color = textThemeColor.copy(alpha = 0.6f), fontWeight = FontWeight.Medium)
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(
+                onClick = onDecrement,
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(textThemeColor.copy(alpha = 0.08f))
+            ) {
+                Icon(Icons.Default.Remove, contentDescription = null, tint = textThemeColor, modifier = Modifier.size(16.dp))
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Text(
+                value.toString().padStart(2, '0'),
+                fontSize = 32.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = if (value > 0) statusRedColor else textThemeColor.copy(alpha = 0.3f)
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            IconButton(
+                onClick = onIncrement,
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(actionTealColor.copy(alpha = 0.1f))
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null, tint = actionTealColor, modifier = Modifier.size(16.dp))
+            }
+        }
+    }
+}
+@Composable
+fun TimePickerRow(
+    label: String,
+    hour: Int,
+    minute: Int,
+    onHourChange: (Int) -> Unit,
+    onMinuteChange: (Int) -> Unit
+) {
+    GlassCard {
+        Text(label, fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Hour picker
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                IconButton(onClick = { onHourChange((hour + 1) % 24) }) {
+                    Icon(Icons.Default.KeyboardArrowUp, null, tint = actionTealColor)
+                }
+                Text(
+                    String.format("%02d", hour),
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = actionTealColor
+                )
+                IconButton(onClick = { onHourChange((hour - 1 + 24) % 24) }) {
+                    Icon(Icons.Default.KeyboardArrowDown, null, tint = actionTealColor)
+                }
+            }
+
+            Text(":", fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp))
+
+            // Minute picker
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                IconButton(onClick = { onMinuteChange((minute + 15) % 60) }) {
+                    Icon(Icons.Default.KeyboardArrowUp, null, tint = actionTealColor)
+                }
+                Text(
+                    String.format("%02d", minute),
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = actionTealColor
+                )
+                IconButton(onClick = { onMinuteChange((minute - 15 + 60) % 60) }) {
+                    Icon(Icons.Default.KeyboardArrowDown, null, tint = actionTealColor)
+                }
             }
         }
     }

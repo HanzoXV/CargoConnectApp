@@ -7,6 +7,10 @@ data class DriverRequestsResponse(
     val totalRequests: Int,
     val shipmentData: List<ShipmentData>
 )
+data class BookingActionResponse(
+    val message: String,
+    val bookingId: Int
+)
 
 data class RequestData(
     val request_id: Int,
@@ -29,31 +33,34 @@ data class ShipmentData(
     val customer_id: Int,
     val package_count: Int,
     val total_weight: Double,
-    val packages: List<PackageDto> = emptyList()  // <-- added
+    val packages: List<PackageDto> = emptyList()
 )
 
 data class PackageDto(
-    val shipment_id: Int,
-    val name: String,
-    val weight: Double,
-    val length: Double,
-    val width: Double,
-    val height: Double,
-    val quantity: Int,
-    val color: String?,
-    val tagNo: String?
+    @SerializedName(value = "shipment_id", alternate = ["ShipmentId", "shipmentId", "shipment_ID"]) val shipment_id: Int,
+    @SerializedName(value = "name", alternate = ["Name", "packageName", "item_name"]) val name: String,
+    @SerializedName(value = "weight", alternate = ["Weight", "packageWeight", "weight_kg", "total_weight"]) val weight: Double,
+    @SerializedName(value = "length", alternate = ["Length", "packageLength", "L"]) val length: Double,
+    @SerializedName(value = "width", alternate = ["Width", "packageWidth", "W"]) val width: Double,
+    @SerializedName(value = "height", alternate = ["Height", "packageHeight", "H"]) val height: Double,
+    @SerializedName(value = "quantity", alternate = ["Quantity", "packageQuantity", "qty"]) val quantity: Int,
+    @SerializedName(value = "color", alternate = ["Color", "packageColor"]) val color: String?,
+    @SerializedName(value = "tagNo", alternate = ["TagNo", "packageTag", "tag_no"]) val tagNo: String?
 )
 
 // --- CUSTOMER MODELS ---
 
 data class CustomerBooking(
+    val id: Int = 0,
     val title: String,
     val route: String,
     val amount: String,
-    val status: BookingStatus
+    val status: BookingStatus,
+    val weight: String = "",
+    val packageCount: Int = 0
 )
 
-enum class BookingStatus { InTransit, Confirmed, Completed, Reviewed }
+enum class BookingStatus { InTransit, Assigned, Completed, Canceled }
 
 data class Package(
     val name: String,
@@ -101,13 +108,6 @@ data class ChatContact(
     val hasUnread: Boolean,
     val isSupport: Boolean = false
 )
-
-data class NotificationItem(
-    val message: String,
-    val time: String,
-    val hasUnread: Boolean
-)
-
 data class CreateShipmentResponse(
     val shipmentId: Int
 )
@@ -155,33 +155,23 @@ data class CompleteShipmentRequest(
 )
 
 data class ShipmentDto(
-    @SerializedName(value = "shipment_id", alternate = ["ShipmentId"]) val shipmentId: Int,
-    @SerializedName(value = "pickup_address", alternate = ["PickupAddress"]) val pickupAddress: String,
-    @SerializedName(value = "delivery_address", alternate = ["DeliveryAddress"]) val deliveryAddress: String,
+    @SerializedName(value = "shipment_id", alternate = ["ShipmentId", "shipmentId"]) val shipmentId: Int,
+    @SerializedName(value = "pickup_address", alternate = ["PickupAddress", "pickupAddress"]) val pickupAddress: String,
+    @SerializedName(value = "delivery_address", alternate = ["DeliveryAddress", "deliveryAddress"]) val deliveryAddress: String,
     @SerializedName(value = "status", alternate = ["Status"]) val status: String,
-    @SerializedName(value = "sender_name", alternate = ["SenderName"]) val senderName: String,
-    @SerializedName(value = "sender_contact", alternate = ["SenderContact"]) val senderContact: String,
-    @SerializedName(value = "total_weight", alternate = ["TotalWeight"]) val totalWeight: Double,
+    @SerializedName(value = "sender_name", alternate = ["SenderName", "senderName"]) val senderName: String,
+    @SerializedName(value = "sender_contact", alternate = ["SenderContact", "senderContact"]) val senderContact: String,
+    @SerializedName(value = "total_weight", alternate = ["TotalWeight", "totalWeight"]) val totalWeight: Double,
     @SerializedName(value = "strict", alternate = ["Strict"]) val strict: Boolean,
-    @SerializedName(value = "recipient_fname", alternate = ["RecipientFname"]) val recipientFname: String?,
-    @SerializedName(value = "recipient_lname", alternate = ["RecipientLname"]) val recipientLname: String?,
-    @SerializedName(value = "recipient_contact", alternate = ["RecipientContact"]) val recipientContact: String?,
-    @SerializedName(value = "booking_date", alternate = ["BookingDate"]) val bookingDate: String?,
-    @SerializedName(value = "shipment_radius", alternate = ["ShipmentRadius"]) val shipmentRadius: Double?,
-    @SerializedName(value = "shipment_type", alternate = ["ShipmentType"]) val shipmentType: String?,
-    @SerializedName(value = "packages", alternate = ["Packages"]) val packages: List<PackageCreateItem>?
-)
-
-data class BookingDto(
-    val id: Int,
-    val status: String,
-    val amount: Double,
-    @SerializedName("bookingType") val bookingType: String,
-    val fromCheckpoint: String?, // Nullable because fromCp can be null
-    val toCheckpoint: String?    // Nullable because toCp can be null
+    @SerializedName(value = "recipient_fname", alternate = ["RecipientFname", "recipientFname"]) val recipientFname: String?,
+    @SerializedName(value = "recipient_lname", alternate = ["RecipientLname", "recipientLname"]) val recipientLname: String?,
+    @SerializedName(value = "recipient_contact", alternate = ["RecipientContact", "recipientContact"]) val recipientContact: String?,
+    @SerializedName(value = "booking_date", alternate = ["BookingDate", "bookingDate"]) val bookingDate: String?,
+    @SerializedName(value = "shipment_radius", alternate = ["ShipmentRadius", "shipmentRadius"]) val shipmentRadius: Double?,
+    @SerializedName(value = "shipment_type", alternate = ["ShipmentType", "shipmentType"]) val shipmentType: String?,
+    @SerializedName(value = "packages", alternate = ["Packages", "packagesData", "PackagesData"]) val packages: List<PackageCreateItem>?
 )
 data class AvailabilityDto(
-    // Shipment & Request Details
     @SerializedName("shipmentId") val shipmentId: Int,
     @SerializedName("pickupLat") val pickupLat: Double,
     @SerializedName("pickupLong") val pickupLong: Double,
@@ -190,7 +180,6 @@ data class AvailabilityDto(
     @SerializedName("requestedDate") val requestedDate: String,
     @SerializedName("isStrict") val isStrict: Boolean,
 
-    // Driver & Truck Info
     @SerializedName("DriverId") val driverId: Int? = null,
     @SerializedName("DriverName") val driverName: String? = null,
     @SerializedName("ContactNo") val contactNo: String? = null,
@@ -200,7 +189,6 @@ data class AvailabilityDto(
     @SerializedName("PickupCity") val pickupCity: String? = null,
     @SerializedName("DestinationCity") val destinationCity: String? = null,
 
-    // Financials & Logic
     @SerializedName("Price") val price: Double? = null,
     @SerializedName("IsFull") val isFull: Boolean? = null,
     @SerializedName("RouteId") val routeId: Int? = null,
@@ -231,7 +219,6 @@ data class BookingData(
     val amount: Double,
     val pickup_date: String?,
 
-    // Shipment details
     val pickup_address: String?,
     val pickup_lat: Double?,
     val pickup_long: Double?,
@@ -243,10 +230,8 @@ data class BookingData(
     val total_weight: Double?,
     val package_count: Int?,
 
-    // Recipient details
     val recipient_name: String?,
     val recipient_contact: String?,
 
-    // Package details
     val packages: List<PackageDto> = emptyList()
 )

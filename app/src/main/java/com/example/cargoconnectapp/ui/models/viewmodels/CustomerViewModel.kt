@@ -29,14 +29,17 @@ class CustomerViewModel : ViewModel() {
     var deliveredCount by mutableStateOf(0)
 
     // Bookings State
-    var customerBookings = mutableStateListOf<BookingDto>()
+    var customerBookings = mutableStateListOf<CustomerBookingDto>()
     var pendingShipments = mutableStateListOf<ShipmentDto>()
     
     // Selection for Details
-    var selectedBooking by mutableStateOf<CustomerBooking?>(null)
+    var selectedBooking by mutableStateOf<CustomerBookingDto?>(null)
     var selectedTruck by mutableStateOf<AvailabilityDto?>(null)
 
     // --- NEW SHIPMENT FLOW STATE ---
+
+    var notifications by mutableStateOf<List<NotificationDto>>(emptyList())
+        private set
     
     val addedPackages = mutableStateListOf<Package>()
 
@@ -51,6 +54,8 @@ class CustomerViewModel : ViewModel() {
     var isFlammable by mutableStateOf(false)
     var isLiquid by mutableStateOf(false)
     var isKeepUpright by mutableStateOf(false)
+
+    var recentPackages by mutableStateOf<List<RecentPackageDto>>(emptyList())
 
     var pickupPoint by mutableStateOf("")
     var destination by mutableStateOf("")
@@ -126,6 +131,39 @@ class CustomerViewModel : ViewModel() {
             }
         }
     }
+    fun fetchNotifications(userId: Int) {
+        viewModelScope.launch {
+            isLoading = true
+            errorMessage = null
+            try {
+                val response = RetrofitClient.instance.getNotifications(userId)
+                if (response.isSuccessful) {
+                    notifications = response.body() ?: emptyList()
+                } else {
+                    val errorBody = response.errorBody()?.string()
+                    if (errorBody.isNotFoundError()) {
+                        notifications = emptyList()
+                    } else {
+                        errorMessage = errorBody
+                    }
+                }
+            } catch (e: Exception) {
+                errorMessage = e.message
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+    private fun String?.isNotFoundError(): Boolean {
+        if (this == null) return false
+        val low = this.lowercase()
+        return low.contains("no route found") ||
+                low.contains("no next route found") ||
+                low.contains("not found") ||
+                low.contains("no active route") ||
+                low.contains("no requests") ||
+                low.contains("no notifications")
+    }
 
     fun fetchCustomerBookings(customerId: Int) {
         viewModelScope.launch {
@@ -137,10 +175,11 @@ class CustomerViewModel : ViewModel() {
                     response.body()?.let { bookings ->
                         customerBookings.addAll(bookings)
                         
-                        // Update Dashboard Stats
-                        totalBookings = bookings.size
+                        // Update Dashboard Stats (Excluding Canceled)
+                        val active = bookings.filter { it.status.lowercase() != "canceled" }
+                        totalBookings = active.size
                         confirmedCount = bookings.count { it.status.lowercase() == "confirmed" }
-                        inTransitCount = bookings.count { it.status.lowercase() == "intransit" || it.status.lowercase() == "moving" }
+                        inTransitCount = bookings.count { it.status.lowercase() == "in-transit" || it.status.lowercase() == "moving" }
                         deliveredCount = bookings.count { it.status.lowercase() == "delivered" || it.status.lowercase() == "completed" }
                     }
                     Log.d("CustomerViewModel", "Fetched ${customerBookings.size} bookings")
@@ -153,6 +192,28 @@ class CustomerViewModel : ViewModel() {
                 isLoading = false
             }
         }
+    }
+    fun fetchRecentPackages(customerId: Int) {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.instance.getRecentPackages(customerId)
+                if (response.isSuccessful) {
+                    recentPackages = response.body() ?: emptyList()
+                }
+            } catch (e: Exception) {
+                Log.e("CustomerViewModel", "Failed to fetch recent packages", e)
+            }
+        }
+    }
+
+    fun addRecentPackageLocally(pkg: RecentPackageDto) {
+        val newPkg = Package(
+            name = pkg.name,
+            dimensions = "${pkg.length}x${pkg.width}x${pkg.height}",
+            weight = pkg.weight.toString(),
+            quantity = pkg.quantity
+        )
+        addedPackages.add(newPkg)
     }
 
     fun fetchPendingShipments(customerId: Int) {
@@ -318,13 +379,14 @@ class CustomerViewModel : ViewModel() {
         val shipmentId = truck.shipmentId
         val driverId = truck.driverId ?: return
         val routeId = truck.routeId ?: return
+        val fare = truck.price ?: return
 
         viewModelScope.launch {
             isLoading = true
             errorMessage = null
             successMessage = null
             try {
-                val response = RetrofitClient.instance.sendRequest(shipmentId, driverId, routeId)
+                val response = RetrofitClient.instance.sendRequest(shipmentId, driverId, routeId, fare)
                 if (response.isSuccessful) {
                     successMessage = "Request sent to ${truck.driverName} successfully!"
                 } else {

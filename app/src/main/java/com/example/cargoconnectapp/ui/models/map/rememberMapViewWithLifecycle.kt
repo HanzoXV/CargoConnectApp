@@ -75,7 +75,8 @@ fun OSMContainer(
     circleCenter: GeoPoint? = null,
     onDistancesCalculated: (List<Double>) -> Unit = {},
     onMapClick: (GeoPoint) -> Unit = {},
-    onMapLongClick: (GeoPoint) -> Unit = {}
+    onMapLongClick: (GeoPoint) -> Unit = {},
+    isNavigation: Boolean = false
 ) {
     val context = LocalContext.current
     org.osmdroid.config.Configuration.getInstance().userAgentValue = context.packageName
@@ -84,9 +85,9 @@ fun OSMContainer(
     var hasInitiallyCentered by remember { mutableStateOf(false) }
 
     // Effect 1: Redraw Route & Markers & Circle
-    LaunchedEffect(points, capturedUserLocation == null, radiusInMeters, circleCenter) {
+    LaunchedEffect(points, capturedUserLocation, radiusInMeters, circleCenter) {
         val userLoc = capturedUserLocation
-        
+
         mapView.overlays.removeAll { overlay ->
             overlay is org.osmdroid.views.overlay.Polyline ||
                     (overlay is org.osmdroid.views.overlay.Marker && overlay.id != "user_location_overlay") ||
@@ -99,14 +100,21 @@ fun OSMContainer(
                     position = geoPoint
                     icon = androidx.core.content.ContextCompat.getDrawable(context, R.drawable.ic_red_pin)
                     setAnchor(org.osmdroid.views.overlay.Marker.ANCHOR_CENTER, org.osmdroid.views.overlay.Marker.ANCHOR_BOTTOM)
-                    title = if (index == 0) "Start" else if (index == points.size -1) "End" else "Stop $index"
+                    title = if (index == 0) "Start" else if (index == points.size - 1) "End" else "Stop $index"
                 }
                 mapView.overlays.add(marker)
             }
 
-            val waypoints = if (routeFromUser && userLoc != null) arrayListOf(userLoc) + points else points
-            if (waypoints.size >= 2) {
-                drawFullRoute(context, mapView, waypoints as List<GeoPoint>)
+            if (isNavigation && userLoc != null) {
+                val pointsList = points.toMutableList()
+                pointsList.add(0, userLoc)
+                drawFullRoute(context, mapView, pointsList)
+            } else {
+                // Normal mode: draw full route between all points (optionally prepend user location)
+                val waypoints = if (routeFromUser && userLoc != null) listOf(userLoc) + points else points
+                if (waypoints.size >= 2) {
+                    drawFullRoute(context, mapView, waypoints)
+                }
             }
         }
 
@@ -115,8 +123,8 @@ fun OSMContainer(
             val circle = Polygon.pointsAsCircle(circleCenter, radiusInMeters)
             val polygon = Polygon(mapView)
             polygon.points = circle
-            polygon.fillPaint.color = 0x330000FF.toInt() // Transparent Blue
-            polygon.outlinePaint.color = 0xFF0000FF.toInt() // Blue
+            polygon.fillPaint.color = 0x330000FF.toInt()
+            polygon.outlinePaint.color = 0xFF0000FF.toInt()
             polygon.outlinePaint.strokeWidth = 2f
             mapView.overlays.add(polygon)
         }

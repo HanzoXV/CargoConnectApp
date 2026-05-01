@@ -1,5 +1,6 @@
 package com.example.cargoconnectapp.ui.navigation
 
+import android.R
 import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -43,11 +44,16 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.cargoconnectapp.ui.models.datamodels.RouteCheckpointRequest
 import com.example.cargoconnectapp.ui.models.destinations.*
 import com.example.cargoconnectapp.ui.themes.*
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
+import android.content.Context
+import java.util.Calendar
 
 
 // ─────────────────────────────────────────────
@@ -440,7 +446,7 @@ fun LocationInputField(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                painter = painterResource(id = android.R.drawable.ic_menu_mylocation),
+                painter = painterResource(id = R.drawable.ic_menu_mylocation),
                 contentDescription = null,
                 tint = if (isSelected) actionTealColor else Color.Gray,
                 modifier = Modifier.size(24.dp)
@@ -458,7 +464,7 @@ fun LocationInputField(
             }
             if (isSelected) {
                 Icon(
-                    painter = painterResource(id = android.R.drawable.ic_menu_edit),
+                    painter = painterResource(id = R.drawable.ic_menu_edit),
                     contentDescription = "Selected",
                     tint = actionTealColor,
                     modifier = Modifier.size(20.dp)
@@ -814,7 +820,7 @@ fun CityChip(city: String, onRemove: () -> Unit) {
             )
             IconButton(onClick = onRemove, modifier = Modifier.size(20.dp)) {
                 Icon(
-                    painter = painterResource(id = android.R.drawable.ic_menu_close_clear_cancel),
+                    painter = painterResource(id = R.drawable.ic_menu_close_clear_cancel),
                     contentDescription = "Remove",
                     tint = actionTealColor,
                     modifier = Modifier.size(16.dp)
@@ -887,7 +893,7 @@ fun CounterRow(
         ) {
             IconButton(onClick = onDecrease, modifier = Modifier.size(24.dp)) {
                 Icon(
-                    painter = painterResource(id = android.R.drawable.ic_delete),
+                    painter = painterResource(id = R.drawable.ic_delete),
                     contentDescription = "Decrease",
                     tint = textThemeColor
                 )
@@ -903,7 +909,7 @@ fun CounterRow(
             }
             IconButton(onClick = onIncrease, modifier = Modifier.size(24.dp)) {
                 Icon(
-                    painter = painterResource(id = android.R.drawable.ic_input_add),
+                    painter = painterResource(id = R.drawable.ic_input_add),
                     contentDescription = "Increase",
                     tint = textThemeColor
                 )
@@ -1139,9 +1145,75 @@ fun EnhancedNotificationCard(message: String, time: String, isUnread: Boolean) {
         }
     }
 }
-
-@Preview
 @Composable
-fun show () {
-    RouteItem("Lahore", "Truck Adda", "1200KMs", false, {})
+fun CheckpointTimeItem(point: RouteCheckpointRequest, onTimeClick: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(point.name ?: "Unknown Stop", fontWeight = FontWeight.Medium, maxLines = 1)
+                Text("Stop #${point.sequenceNo}", fontSize = 12.sp, color = Color.Gray)
+            }
+
+            TextButton(onClick = onTimeClick) {
+                Column(horizontalAlignment = Alignment.End) {
+                    val datePart = point.estimatedArrival?.substringBefore("T") ?: "No date"
+                    val timePart = point.estimatedArrival
+                        ?.substringAfter("T")
+                        ?.substringBeforeLast(":")
+                        ?: "No time"
+                    Text(datePart, color = actionTealColor, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(timePart, color = actionTealColor, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+            }
+        }
+    }
+}
+
+fun showDateTimePicker(
+    context: Context,
+    currentDateTime: String?,
+    onDateTimeSelected: (String) -> Unit
+) {
+    val calendar = Calendar.getInstance()
+
+    // Pre-populate with existing value if available
+    currentDateTime?.let {
+        try {
+            val datePart = it.substringBefore("T")
+            val timePart = it.substringAfter("T")
+            val (year, month, day) = datePart.split("-").map { p -> p.toInt() }
+            val (hour, minute) = timePart.split(":").map { p -> p.toInt() }
+            calendar.set(year, month - 1, day, hour, minute)
+        } catch (_: Exception) {}
+    }
+
+    // Step 1: Pick date
+    DatePickerDialog(
+        context,
+        { _, year, month, day ->
+            // Step 2: Pick time after date is chosen
+            TimePickerDialog(
+                context,
+                { _, hour, minute ->
+                    val dateStr = String.format("%04d-%02d-%02d", year, month + 1, day)
+                    val timeStr = String.format("%02d:%02d:00", hour, minute)
+                    onDateTimeSelected("${dateStr}T${timeStr}")
+                },
+                calendar.get(Calendar.HOUR_OF_DAY),
+                calendar.get(Calendar.MINUTE),
+                true
+            ).show()
+        },
+        calendar.get(Calendar.YEAR),
+        calendar.get(Calendar.MONTH),
+        calendar.get(Calendar.DAY_OF_MONTH)
+    ).show()
 }

@@ -56,24 +56,29 @@ fun NavGraphBuilder.customerGraph(
         when (page) {
             CustomerDashboardPage.Summary,
             CustomerDashboardPage.Details -> {
-                // Map real bookings for the dashboard list
-                val activeBookings = customerViewModel.customerBookings
-                    .filter { it.status.lowercase() !in listOf("completed", "delivered", "closed", "pending") }
+                // Map all bookings except canceled for the dashboard
+                val dashboardBookings = customerViewModel.customerBookings
+                    .filter { it.status.lowercase() != "canceled" }
                     .map { dto ->
                         CustomerBooking(
+                            id = dto.id,
                             title = "Booking #${dto.id}",
-                            route = dto.fromCheckpoint?.let { "$it to ${dto.toCheckpoint ?: "N/A"}" } ?: "Route N/A",
+                            route = dto.fromCheckpoint?.let { "$it to ${dto.toCheckpoint ?: "N/A"}" } 
+                                    ?: dto.pickup_address?.let { "$it to ${dto.delivery_address ?: "N/A"}" } 
+                                    ?: "Route N/A",
                             amount = "Rs ${dto.amount}",
                             status = when(dto.status.lowercase()) {
                                 "intransit", "moving" -> BookingStatus.InTransit
-                                else -> BookingStatus.Confirmed
+                                "completed", "delivered", "closed" -> BookingStatus.Completed
+                                "canceled" -> BookingStatus.Canceled
+                                else -> BookingStatus.Assigned
                             }
                         )
                     }
 
                 CustomerDashboardScreen(
                     customerViewModel    = customerViewModel,
-                    bookings             = activeBookings,
+                    bookings             = dashboardBookings,
                     currentTab           = args.tab,
                     onHomeClick          = args.onHomeClick,
                     onOrdersClick        = args.onOrdersClick,
@@ -81,10 +86,19 @@ fun NavGraphBuilder.customerGraph(
                     onChatClick          = args.onChatClick,
                     onProfileClick       = args.onProfileClick,
                     onNewBookingClick    = { navController.navigate(CustomerNewShipment()) },
-                    onDetailsClick       = { navController.navigate(CustomerDashboard(CustomerDashboardPage.Details)) },
+                    onDetailsClick       = { booking -> 
+                        customerViewModel.selectedBooking = customerViewModel.customerBookings.find { it.id == booking.id }
+                        navController.navigate(CustomerBookings(CustomerBookingPage.Details)) 
+                    },
                     onContactDriverClick = { navController.navigate(CustomerChat(CustomerChatPage.Details)) },
-                    onTrackClick         = { navController.navigate(CustomerDashboard(CustomerDashboardPage.Tracking)) },
-                    onCancelClick        = { navController.navigate(CustomerBookings(CustomerBookingPage.CancelBooking)) }
+                    onTrackClick         = { booking -> 
+                        customerViewModel.selectedBooking = customerViewModel.customerBookings.find { it.id == booking.id }
+                        navController.navigate(CustomerDashboard(CustomerDashboardPage.Tracking)) 
+                    },
+                    onCancelClick        = { booking -> 
+                        customerViewModel.selectedBooking = customerViewModel.customerBookings.find { it.id == booking.id }
+                        navController.navigate(CustomerBookings(CustomerBookingPage.CancelBooking)) 
+                    }
                 )
             }
             CustomerDashboardPage.Tracking -> {
@@ -107,19 +121,30 @@ fun NavGraphBuilder.customerGraph(
         val args = sharedArgs()
         when (page) {
             CustomerNewShipmentPage.AddPackages -> {
+                LaunchedEffect(Unit) {
+                    customerViewModel.fetchRecentPackages(session.roleBasedId)
+                }
+
                 NewShipmentPackagesScreen(
                     currentTab = args.tab,
                     addedPackages = customerViewModel.addedPackages,
+                    recentPackages = customerViewModel.recentPackages,
                     onAddNewPackage = { navController.navigate(CustomerNewShipment(CustomerNewShipmentPage.AddDetails)) },
                     onRemovePackage = { pkg -> customerViewModel.removePackage(pkg) },
+                    onQuickAdd = { customerViewModel.addRecentPackageLocally(it) },
                     onNext = { navController.navigate(CustomerNewShipment(CustomerNewShipmentPage.ChooseLocation)) },
                     onBack = { navController.popBackStack() },
+                    onCancel = {
+                        customerViewModel.addedPackages.clear()
+                        navController.popBackStack()
+                    },
                     onHomeClick    = args.onHomeClick,
                     onOrdersClick  = args.onOrdersClick,
                     onHistoryClick = args.onHistoryClick,
                     onChatClick    = args.onChatClick,
                     onProfileClick = args.onProfileClick
                 )
+
             }
             CustomerNewShipmentPage.AddDetails  -> {
                 NewShipmentPackageDetailsScreen(
@@ -246,13 +271,16 @@ fun NavGraphBuilder.customerGraph(
             CustomerBookingPage.Completed -> {
                 
                 val activeList = customerViewModel.customerBookings
-                    .filter { it.status.lowercase() in listOf("confirmed", "intransit", "moving") }
+                    .filter { it.status.lowercase() in listOf("assigned", "intransit", "moving") }
                     .map { dto ->
                         CustomerBooking(
+                            id = dto.id,
                             title = "Booking #${dto.id}",
-                            route = dto.fromCheckpoint?.let { "$it to ${dto.toCheckpoint ?: "N/A"}" } ?: "Route N/A",
+                            route = dto.fromCheckpoint?.let { "$it to ${dto.toCheckpoint ?: "N/A"}" } 
+                                    ?: dto.pickup_address?.let { "$it to ${dto.delivery_address ?: "N/A"}" } 
+                                    ?: "Route N/A",
                             amount = "Rs ${dto.amount}",
-                            status = if (dto.status.lowercase() == "confirmed") BookingStatus.Confirmed else BookingStatus.InTransit
+                            status = if (dto.status.lowercase() == "assigned") BookingStatus.Assigned else BookingStatus.InTransit
                         )
                     }
 
@@ -260,14 +288,18 @@ fun NavGraphBuilder.customerGraph(
                     .filter { it.status.lowercase() in listOf("completed", "delivered", "closed") }
                     .map { dto ->
                         CustomerBooking(
+                            id = dto.id,
                             title = "Booking #${dto.id}",
-                            route = dto.fromCheckpoint?.let { "$it to ${dto.toCheckpoint ?: "N/A"}" } ?: "Route N/A",
+                            route = dto.fromCheckpoint?.let { "$it to ${dto.toCheckpoint ?: "N/A"}" } 
+                                    ?: dto.pickup_address?.let { "$it to ${dto.delivery_address ?: "N/A"}" } 
+                                    ?: "Route N/A",
                             amount = "Rs ${dto.amount}",
                             status = BookingStatus.Completed
                         )
                     }
 
                 YourBookingsScreen(
+                    customerViewModel    = customerViewModel,
                     currentTab           = args.tab,
                     onHomeClick          = args.onHomeClick,
                     onOrdersClick        = args.onOrdersClick,
@@ -277,10 +309,19 @@ fun NavGraphBuilder.customerGraph(
                     activeBookings       = activeList,
                     pendingBookings      = customerViewModel.pendingShipments,
                     completedBookings    = completedList,
-                    onDetailsClick       = { navController.navigate(CustomerBookings(CustomerBookingPage.Details)) },
+                    onDetailsClick       = { booking -> 
+                        customerViewModel.selectedBooking = customerViewModel.customerBookings.find { it.id == booking.id }
+                        navController.navigate(CustomerBookings(CustomerBookingPage.Details)) 
+                    },
                     onContactDriverClick = { navController.navigate(CustomerChat(CustomerChatPage.Details)) },
-                    onTrackClick         = { navController.navigate(CustomerDashboard(CustomerDashboardPage.Tracking)) },
-                    onCancelClick        = { navController.navigate(CustomerBookings(CustomerBookingPage.CancelBooking)) },
+                    onTrackClick         = { booking -> 
+                        customerViewModel.selectedBooking = customerViewModel.customerBookings.find { it.id == booking.id }
+                        navController.navigate(CustomerDashboard(CustomerDashboardPage.Tracking)) 
+                    },
+                    onCancelClick        = { booking -> 
+                        customerViewModel.selectedBooking = customerViewModel.customerBookings.find { it.id == booking.id }
+                        navController.navigate(CustomerBookings(CustomerBookingPage.CancelBooking)) 
+                    },
                     onReviewClick        = { },
                     onFindTruckClick     = { shipment ->
                         customerViewModel.radius = shipment.shipmentRadius ?: 1.0
@@ -299,7 +340,15 @@ fun NavGraphBuilder.customerGraph(
                 )
             }
             CustomerBookingPage.Details -> {
+                val booking = customerViewModel.selectedBooking
                 BookingShipmentsDetailScreen(
+                    pickupAddress = booking?.pickup_address ?: "N/A",
+                    deliveryAddress = booking?.delivery_address ?: "N/A",
+                    totalWeight = "${booking?.total_weight ?: 0.0} kg",
+                    pickupDate = booking?.pickup_date ?: "N/A",
+                    packages = booking?.packages ?: emptyList(),
+                    recpName = booking?.recipient_name?: "N/A",
+                    recpContact = booking?.recipient_contact ?: "N/A",
                     currentTab     = args.tab,
                     onBack         = { navController.popBackStack() },
                     onHomeClick    = args.onHomeClick,
@@ -331,7 +380,11 @@ fun NavGraphBuilder.customerGraph(
         when (page) {
             CustomerChatPage.Main,
             CustomerChatPage.Notifications -> {
+                LaunchedEffect(Unit) {
+                    customerViewModel.fetchNotifications(session.userId)
+                }
                 CustomerActivityScreen(
+                    notifications = customerViewModel.notifications,
                     currentTab     = args.tab,
                     onHomeClick    = args.onHomeClick,
                     onOrdersClick  = args.onOrdersClick,

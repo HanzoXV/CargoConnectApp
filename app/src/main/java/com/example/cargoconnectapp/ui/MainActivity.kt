@@ -76,7 +76,7 @@ fun AppNavigation(sessionViewModel: UserSessionViewModel,
         })
     {
         authGraph(navController, sessionViewModel, authViewModel, driverViewModel, customerViewModel)
-        driverGraph(navController, sessionViewModel, authViewModel, driverViewModel)
+        driverGraph(navController, sessionViewModel, authViewModel, driverViewModel, customerViewModel)
         customerGraph(navController, sessionViewModel, authViewModel, customerViewModel)
     }
 }

@@ -2,6 +2,12 @@ package com.example.cargoconnectapp.ui.models.datamodels
 
 import com.google.gson.annotations.SerializedName
 
+data class NotificationDto(
+    val notification_id: Int,
+    val message: String,
+    val is_read: Boolean,
+    val created_at: String
+)
 data class RouteData(
     @SerializedName("routeId")
     val routeId: Int,
@@ -50,7 +56,7 @@ data class CheckpointData(
     @SerializedName("sequenceNo")
     val sequenceNo: Int? = null,
     @SerializedName("reached")
-    val reached: Boolean? = null
+    val reached: Boolean? = null,
 )
 
 data class SaveRouteResponse(
@@ -95,7 +101,8 @@ data class RouteCheckpointRequest(
     @SerializedName("longitude")
     val longitude: Double,
     @SerializedName("sequenceNo")
-    val sequenceNo: Int
+    val sequenceNo: Int,
+    val estimatedArrival: String? = null
 )
 
 data class CheckpointShipmentsResponse(

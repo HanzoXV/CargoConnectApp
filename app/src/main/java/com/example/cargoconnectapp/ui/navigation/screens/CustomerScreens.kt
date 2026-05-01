@@ -198,11 +198,11 @@ fun CustomerDashboardScreen(
                 Text("Shipment Overview", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = textThemeColor)
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                BookingStatRowOverhauled("Confirmed", customerViewModel.confirmedCount, total, statusBlueColor)
+                BookingStatRowOverhauled("Assigned", customerViewModel.confirmedCount, total, statusBlueColor)
                 Spacer(modifier = Modifier.height(12.dp))
                 BookingStatRowOverhauled("In-Transit", customerViewModel.inTransitCount, total, statusOrangeColor)
                 Spacer(modifier = Modifier.height(12.dp))
-                BookingStatRowOverhauled("Delivered", customerViewModel.deliveredCount, total, Color(0xFF4CAF50))
+                BookingStatRowOverhauled("Completed", customerViewModel.deliveredCount, total, Color(0xFF4CAF50))
             }
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -217,10 +217,13 @@ fun CustomerDashboardScreen(
 @Composable
 fun NewShipmentPackagesScreen(
     addedPackages: List<Package> = emptyList(),
+    recentPackages: List<RecentPackageDto> = emptyList(),
     onAddNewPackage: () -> Unit = {},
     onRemovePackage: (Package) -> Unit = {},
+    onQuickAdd: (RecentPackageDto) -> Unit = {},
     onBack: () -> Unit = {},
     onNext: () -> Unit = {},
+    onCancel: () -> Unit = {},   // clears list + goes back
     onHomeClick: () -> Unit = {},
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
@@ -236,7 +239,7 @@ fun NewShipmentPackagesScreen(
             Spacer(modifier = Modifier.height(32.dp))
             Text("New Shipment", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
             Text("Items to deliver", fontSize = 14.sp, color = Color.Gray)
-            
+
             Spacer(modifier = Modifier.height(24.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -250,17 +253,92 @@ fun NewShipmentPackagesScreen(
 
             LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(addedPackages) { pkg ->
-                    PackageCardOverhauled(pkg, "Remove", statusRedColor) { onRemovePackage(pkg) }
+                    // Updated card with KG and Quantity label
+                    GlassCard {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(modifier = Modifier.size(48.dp), shape = RoundedCornerShape(12.dp), color = statusRedColor.copy(alpha = 0.1f)) {
+                                Icon(Icons.Default.Inventory2, null, modifier = Modifier.padding(12.dp), tint = statusRedColor)
+                            }
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(pkg.name, fontWeight = FontWeight.Bold)
+                                Text("${pkg.weight} KG • Quantity: ${pkg.quantity}", fontSize = 12.sp, color = Color.Gray)
+                            }
+                            TextButton(onClick = { onRemovePackage(pkg) }) {
+                                Text("Remove", color = statusRedColor, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                        }
+                    }
+                }
+
+                // Quick Add Section
+                if (recentPackages.isNotEmpty()) {
+                    item {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Quick Add",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = textThemeColor.copy(alpha = 0.5f)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    items(recentPackages) { recent ->
+                        Surface(
+                            onClick = { onQuickAdd(recent) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = actionTealColor.copy(alpha = 0.05f),
+                            border = BorderStroke(1.dp, actionTealColor.copy(alpha = 0.2f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.AddCircleOutline,
+                                    null,
+                                    tint = actionTealColor,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(recent.name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                    Text(
+                                        "${recent.weight} KG • Quantity: ${recent.quantity} • ${recent.length}x${recent.width}x${recent.height} cm",
+                                        fontSize = 11.sp,
+                                        color = Color.Gray
+                                    )
+                                }
+                                Text(
+                                    "+ Add",
+                                    color = actionTealColor,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(16.dp)) {
+                OutlinedButton(
+                    onClick = onCancel,  // clears packages + goes back
+                    modifier = Modifier.weight(1f).height(56.dp),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
                     Text("Cancel")
                 }
-                Button(onClick = { onNext() }, enabled = addedPackages.isNotEmpty(), modifier = Modifier.weight(1.5f).height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)) {
+                Button(
+                    onClick = onNext,
+                    enabled = addedPackages.isNotEmpty(),
+                    modifier = Modifier.weight(1.5f).height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
+                ) {
                     Text("Proceed", fontWeight = FontWeight.Bold)
                 }
             }
@@ -825,7 +903,7 @@ fun DriverDetailsScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 GlassCard {
                     DetailItem(Icons.Default.LocalShipping, "Model", truck.truckModel ?: "N/A")
-                    DetailItem(Icons.Default.Badge, "License No", truck.licenseNo ?: "N/A")
+                    DetailItem(Icons.Default.Badge, "Vehicle Registration No", truck.licenseNo ?: "N/A")
                     DetailItem(Icons.Default.Scale, "Total Capacity", if (truck.totalCapacity != null) "${truck.totalCapacity} kg" else "N/A")
                 }
 
@@ -858,6 +936,7 @@ fun DriverDetailsScreen(
 
 @Composable
 fun YourBookingsScreen(
+    customerViewModel: CustomerViewModel,
     activeBookings: List<CustomerBooking> = emptyList(),
     completedBookings: List<CustomerBooking> = emptyList(),
     pendingBookings: List<ShipmentDto> = emptyList(),
@@ -914,7 +993,7 @@ fun YourBookingsScreen(
 
 @Composable
 fun PendingShipmentCard(shipment: ShipmentDto, onFindTruck: () -> Unit, onDetails: () -> Unit) {
-    GlassCard {
+    GlassCard(modifier = Modifier.clickable { onDetails() }) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(modifier = Modifier.size(40.dp), shape = RoundedCornerShape(10.dp), color = actionTealColor.copy(alpha = 0.1f)) {
@@ -1027,7 +1106,7 @@ fun PendingShipmentDetailsModal(
 @Composable
 fun CustomerActivityScreen(
     chats: List<ChatContact> = emptyList(),
-    notifications: List<NotificationItem> = emptyList(),
+    notifications: List<NotificationDto> = emptyList(),
     onChatClick: (ChatContact) -> Unit = {},
     onHomeClick: () -> Unit = {},
     onOrdersClick: () -> Unit = {},
@@ -1046,7 +1125,7 @@ fun CustomerActivityScreen(
             Spacer(modifier = Modifier.height(16.dp))
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (selectedTab == "Chats") { items(chats) { EnhancedChatListItem(it.name, it.lastMessage, it.time, it.hasUnread, onClick = { onChatClick(it) }) } }
-                else { items(notifications) { EnhancedNotificationCard(it.message, it.time, it.hasUnread) } }
+                else { items(notifications) { EnhancedNotificationCard(it.message, it.created_at, it.is_read) } }
             }
         }
     }
@@ -1131,11 +1210,13 @@ fun CancelBookingScreen(
 
 @Composable
 fun BookingShipmentsDetailScreen(
-    shipments: List<ShipmentDetail> = emptyList(),
+    packages: List<PackageDto> = emptyList(),
     pickupAddress: String = "Karachi",
     deliveryAddress: String = "Lahore",
     totalWeight: String = "500kg",
     pickupDate: String = "Sep 12",
+    recpName: String = "N/A",
+    recpContact: String = "N/A",
     onBack: () -> Unit = {},
     onHomeClick: () -> Unit = {},
     onOrdersClick: () -> Unit = {},
@@ -1157,16 +1238,17 @@ fun BookingShipmentsDetailScreen(
                 DetailItem(Icons.Default.Flag, "To", deliveryAddress)
                 DetailItem(Icons.Default.Scale, "Weight", totalWeight)
                 DetailItem(Icons.Default.CalendarToday, "Date", pickupDate)
+                DetailItem(Icons.Default.CalendarToday, "Recipient Name", recpName)
+                DetailItem(Icons.Default.CalendarToday, "Recipient Contact", recpContact)
             }
             
             Spacer(modifier = Modifier.height(16.dp))
-            Text("Packages", fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
-            shipments.forEach { shipment ->
-                shipment.packages.forEach { pkg ->
-                    GlassCard(modifier = Modifier.padding(vertical = 4.dp)) {
-                        Text(pkg.name, fontWeight = FontWeight.Bold)
-                        Text("Qty: ${pkg.quantity} • ${pkg.dimensions}", fontSize = 12.sp, color = Color.Gray)
-                    }
+            Text("Packages (${packages.size})", fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
+            packages.forEach { pkg ->
+                GlassCard(modifier = Modifier.padding(vertical = 4.dp)) {
+                    Text(pkg.name, fontWeight = FontWeight.Bold)
+                    Text("Qty: ${pkg.quantity} • ${pkg.length}x${pkg.width}x${pkg.height} cm", fontSize = 12.sp, color = Color.Gray)
+                    Text("Weight: ${pkg.weight} kg", fontSize = 12.sp, color = actionTealColor, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1204,7 +1286,7 @@ fun CustomerBookingCardOverhauled(
     onTrack: () -> Unit,
     onCancel: () -> Unit
 ) {
-    GlassCard {
+    GlassCard(modifier = Modifier.clickable { onDetails() }) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(modifier = Modifier.size(40.dp), shape = RoundedCornerShape(10.dp), color = actionTealColor.copy(alpha = 0.1f)) {
@@ -1246,7 +1328,7 @@ fun CustomerBookingCardOverhauled(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("Track Live", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
-            } else if (booking.status == BookingStatus.Confirmed) {
+            } else if (booking.status == BookingStatus.Assigned) {
                 Button(
                     onClick = onCancel,
                     modifier = Modifier.weight(1.5f).height(40.dp),
@@ -1262,8 +1344,7 @@ fun CustomerBookingCardOverhauled(
 
 @Composable
 fun CompletedBookingCardOverhauled(booking: CustomerBooking, onDetails: () -> Unit, onReview: () -> Unit) {
-    val isReviewed = booking.status == BookingStatus.Reviewed
-    GlassCard {
+    GlassCard(modifier = Modifier.clickable { onDetails() }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Surface(modifier = Modifier.size(40.dp), shape = CircleShape, color = Color.Gray.copy(alpha = 0.1f)) { Icon(Icons.Default.CheckCircle, null, modifier = Modifier.padding(10.dp), tint = Color.Gray) }
             Spacer(modifier = Modifier.width(12.dp))
@@ -1275,7 +1356,7 @@ fun CompletedBookingCardOverhauled(booking: CustomerBooking, onDetails: () -> Un
         Spacer(modifier = Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onDetails, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text("Details") }
-            if (!isReviewed) { Button(onClick = onReview, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp), colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)) { Text("Review") } }
+            Button(onClick = onReview, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp), colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)) { Text("Review") }
         }
     }
 }
@@ -1302,10 +1383,10 @@ private fun Int.LeonardOf(total: Float): Float {
 @Composable
 fun BookingStatusBadgeOverhauled(status: BookingStatus) {
     val (label, color) = when (status) {
-        BookingStatus.InTransit -> "Moving" to statusOrangeColor
-        BookingStatus.Confirmed -> "Booked" to statusBlueColor
-        BookingStatus.Completed -> "Arrived" to Color(0xFF4CAF50)
-        BookingStatus.Reviewed -> "Closed" to Color.Gray
+        BookingStatus.InTransit -> "In-Transit" to statusOrangeColor
+        BookingStatus.Assigned -> "Assigned" to statusBlueColor
+        BookingStatus.Completed -> "Completed" to Color(0xFF4CAF50)
+        BookingStatus.Canceled -> "Canceled" to statusRedColor
     }
     Surface(
         shape = RoundedCornerShape(8.dp),
@@ -1319,4 +1400,10 @@ fun BookingStatusBadgeOverhauled(status: BookingStatus) {
             fontWeight = FontWeight.ExtraBold
         )
     }
+}
+
+@Preview
+@Composable
+fun displaycancelscreen () {
+    CancelBookingScreen({},{},{},{},{},{})
 }

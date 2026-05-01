@@ -2,6 +2,7 @@ package com.example.cargoconnectapp.data
 
 import com.example.cargoconnectapp.ui.models.datamodels.*
 import okhttp3.MultipartBody
+import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.*
 
@@ -26,8 +27,14 @@ interface ApiInterface {
     @GET("api/driver/get-routes/{driverId}")
     suspend fun getRoutes(@Path("driverId") driverId: Int): Response<List<RouteData>>
 
+    @POST("api/driver/preview-route-times")
+    suspend fun previewRouteTimes(
+        @Body request: CreateRouteRequest
+    ): Response<List<RouteCheckpointRequest>>
     @POST("api/driver/save-route")
-    suspend fun saveRoute(@Body request: CreateRouteRequest): Response<SaveRouteResponse>
+    suspend fun saveRoute(
+        @Body request: CreateRouteRequest
+    ): Response<SaveRouteResponse>
 
     @POST("api/driver/activate-route/{routeId}")
     suspend fun activateRoute(@Path("routeId") routeId: Int): Response<String>
@@ -54,6 +61,23 @@ interface ApiInterface {
     @POST("api/shipments/complete")
     suspend fun completeShipment(@Body request: CompleteShipmentRequest): Response<Unit>
 
+    @GET("api/customers/{customerId}/recent-packages")
+    suspend fun getRecentPackages(
+        @Path("customerId") customerId: Int
+    ): Response<List<RecentPackageDto>>
+
+    @POST("api/bookings/{bookingId}/pickup")
+    suspend fun pickupBooking(
+        @Path("bookingId") bookingId: Int,
+        @Query("driverId") driverId: Int
+    ): Response<BookingActionResponse>
+
+    @POST("api/bookings/{bookingId}/deliver")
+    suspend fun deliverBooking(
+        @Path("bookingId") bookingId: Int,
+        @Query("driverId") driverId: Int
+    ): Response<BookingActionResponse>
+
     @GET("api/shipments/pending/customer/{customerId}")
     suspend fun getPendingShipments(
         @Path("customerId") customerId: Int
@@ -62,7 +86,7 @@ interface ApiInterface {
     @GET("api/customers/{customerId}/bookings")
     suspend fun getCustomerBookings(
         @Path("customerId") customerId: Int
-    ): Response<List<BookingDto>>
+    ): Response<List<CustomerBookingDto>>
 
     @POST("api/trucks/available")
     suspend fun getAvailableTrucks(
@@ -74,7 +98,8 @@ interface ApiInterface {
     suspend fun sendRequest(
     @Query("shipmentId") shipmentId: Int,
     @Query("driverId") driverId: Int,
-    @Query("routeId") routeId: Int
+    @Query("routeId") routeId: Int,
+    @Query("fare") fare: Double
 ): Response<String>
 
     @POST("api/requests/decline")
@@ -120,6 +145,25 @@ interface ApiInterface {
         @Query("driverId") driverId: Int
     ): Response<StartTripResponse>
 
+    @GET("api/activity/notifications/{userId}")
+    suspend fun getNotifications(
+        @Path("userId") userId: Int
+    ): Response<List<NotificationDto>>
 
+    @POST("api/driver/add-delay")
+    suspend fun reportDelay(
+        @Query("checkpointId") checkpointId: Int,
+        @Query("hours") hours: Double,
+        @Query("reason") reason: String
+    ): Response<ResponseBody>
 
+    @GET("api/checkpoints/estimated-arrival/{checkpointId}")
+    suspend fun getEstimatedArrivalDate(
+        @Path("checkpointId") checkpointId: Int
+    ): Response<String>
+
+    @POST("api/bookings/{bookingId}/cancel")
+    suspend fun cancelBooking(
+        @Path("bookingId") bookingId: Int
+    ): Response<BookingActionResponse>
 }
