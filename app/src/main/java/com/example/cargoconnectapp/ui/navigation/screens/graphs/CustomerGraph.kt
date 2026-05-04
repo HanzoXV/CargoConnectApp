@@ -2,8 +2,10 @@ package com.example.cargoconnectapp.ui.navigation.screens.graphs
 
 import android.os.Build
 import android.util.Log
+import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
@@ -63,9 +65,11 @@ fun NavGraphBuilder.customerGraph(
                         CustomerBooking(
                             id = dto.id,
                             title = "Booking #${dto.id}",
-                            route = dto.fromCheckpoint?.let { "$it to ${dto.toCheckpoint ?: "N/A"}" } 
-                                    ?: dto.pickup_address?.let { "$it to ${dto.delivery_address ?: "N/A"}" } 
-                                    ?: "Route N/A",
+                            route = dto.pickup_address?.let {
+                                "$it → ${dto.delivery_address ?: "N/A"}"
+                            } ?: dto.fromCheckpoint?.let {
+                                "$it → ${dto.toCheckpoint ?: "N/A"}"
+                            } ?: "Route N/A",
                             amount = "Rs ${dto.amount}",
                             status = when(dto.status.lowercase()) {
                                 "intransit", "moving" -> BookingStatus.InTransit
@@ -90,7 +94,21 @@ fun NavGraphBuilder.customerGraph(
                         customerViewModel.selectedBooking = customerViewModel.customerBookings.find { it.id == booking.id }
                         navController.navigate(CustomerBookings(CustomerBookingPage.Details)) 
                     },
-                    onContactDriverClick = { navController.navigate(CustomerChat(CustomerChatPage.Details)) },
+                    onContactDriverClick = { booking ->
+                        val dto = customerViewModel.customerBookings.find { it.id == booking.id }
+                        if (dto != null) {
+                            customerViewModel.getOrCreateThread(
+                                customerUserId = session.userId,
+                                booking = dto,
+                                onSuccess = { threadId, otherName ->
+                                    customerViewModel.selectedThreadId = threadId
+                                    customerViewModel.selectedThreadName = otherName
+                                    customerViewModel.fetchChatHistory(threadId, session.userId)
+                                    navController.navigate(CustomerChat(CustomerChatPage.Details))
+                                }
+                            )
+                        }
+                    },
                     onTrackClick         = { booking -> 
                         customerViewModel.selectedBooking = customerViewModel.customerBookings.find { it.id == booking.id }
                         navController.navigate(CustomerDashboard(CustomerDashboardPage.Tracking)) 
@@ -255,10 +273,10 @@ fun NavGraphBuilder.customerGraph(
         }
     }
 
-    // ── BOOKINGS / HISTORY (TAB 3) ──
     composable<CustomerBookings> {
         val page = it.toRoute<CustomerBookings>().page
         val args = sharedArgs()
+        val context = LocalContext.current
         
         LaunchedEffect(Unit) {
             customerViewModel.fetchCustomerBookings(session.roleBasedId)
@@ -267,6 +285,7 @@ fun NavGraphBuilder.customerGraph(
 
         when (page) {
             CustomerBookingPage.Active,
+            CustomerBookingPage.Assigned,
             CustomerBookingPage.Pending,
             CustomerBookingPage.Completed -> {
                 
@@ -297,6 +316,19 @@ fun NavGraphBuilder.customerGraph(
                             status = BookingStatus.Completed
                         )
                     }
+                val assignedList = customerViewModel.customerBookings
+                    .filter { it.status.lowercase() in listOf("assigned") }
+                    .map { dto ->
+                        CustomerBooking(
+                            id = dto.id,
+                            title = "Booking #${dto.id}",
+                            route = dto.fromCheckpoint?.let { "$it to ${dto.toCheckpoint ?: "N/A"}" }
+                                ?: dto.pickup_address?.let { "$it to ${dto.delivery_address ?: "N/A"}" }
+                                ?: "Route N/A",
+                            amount = "Rs ${dto.amount}",
+                            status = BookingStatus.Assigned
+                        )
+                    }
 
                 YourBookingsScreen(
                     customerViewModel    = customerViewModel,
@@ -308,12 +340,27 @@ fun NavGraphBuilder.customerGraph(
                     onProfileClick       = args.onProfileClick,
                     activeBookings       = activeList,
                     pendingBookings      = customerViewModel.pendingShipments,
+                    assignedBookings = assignedList,
                     completedBookings    = completedList,
                     onDetailsClick       = { booking -> 
                         customerViewModel.selectedBooking = customerViewModel.customerBookings.find { it.id == booking.id }
                         navController.navigate(CustomerBookings(CustomerBookingPage.Details)) 
                     },
-                    onContactDriverClick = { navController.navigate(CustomerChat(CustomerChatPage.Details)) },
+                    onContactDriverClick = { booking ->
+                        val dto = customerViewModel.customerBookings.find { it.id == booking.id }
+                        if (dto != null) {
+                            customerViewModel.getOrCreateThread(
+                                customerUserId = session.userId,
+                                booking = dto,
+                                onSuccess = { threadId, otherName ->
+                                    customerViewModel.selectedThreadId = threadId
+                                    customerViewModel.selectedThreadName = otherName
+                                    customerViewModel.fetchChatHistory(threadId, session.userId)
+                                    navController.navigate(CustomerChat(CustomerChatPage.Details))
+                                }
+                            )
+                        }
+                    },
                     onTrackClick         = { booking -> 
                         customerViewModel.selectedBooking = customerViewModel.customerBookings.find { it.id == booking.id }
                         navController.navigate(CustomerDashboard(CustomerDashboardPage.Tracking)) 
@@ -322,7 +369,18 @@ fun NavGraphBuilder.customerGraph(
                         customerViewModel.selectedBooking = customerViewModel.customerBookings.find { it.id == booking.id }
                         navController.navigate(CustomerBookings(CustomerBookingPage.CancelBooking)) 
                     },
-                    onReviewClick        = { },
+                    onReviewClick        = { booking ->
+                        customerViewModel.checkCanReview(
+                            reviewerUserId = session.userId,
+                            bookingId = booking.id,
+                            onCanReview = {
+                                navController.navigate(CustomerBookings(CustomerBookingPage.Review))
+                            },
+                            onCannotReview = { msg ->
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    },
                     onFindTruckClick     = { shipment ->
                         customerViewModel.radius = shipment.shipmentRadius ?: 1.0
                         customerViewModel.searchAvailableTrucks(
@@ -335,7 +393,6 @@ fun NavGraphBuilder.customerGraph(
                         )
                     },
                     onShipmentDetailsClick = { shipment ->
-                        // Modal is handled inside YourBookingsScreen
                     }
                 )
             }
@@ -362,7 +419,12 @@ fun NavGraphBuilder.customerGraph(
                 CancelBookingScreen(
                     currentTab       = args.tab,
                     onBack           = { navController.popBackStack() },
-                    onConfirmCancel  = { navController.popBackStack() },
+                    onConfirmCancel  = { _ ->
+                        customerViewModel.selectedBooking?.id?.let { bookingId ->
+                            customerViewModel.cancelBooking(bookingId)
+                        }
+                        navController.popBackStack()
+                    },
                     onHomeClick      = args.onHomeClick,
                     onOrdersClick    = args.onOrdersClick,
                     onHistoryClick   = args.onHistoryClick,
@@ -370,10 +432,32 @@ fun NavGraphBuilder.customerGraph(
                     onProfileClick   = args.onProfileClick
                 )
             }
+            CustomerBookingPage.Review -> {
+                ReviewScreen(
+                    customerViewModel = customerViewModel,
+                    onBack = { navController.popBackStack() },
+                    onSubmit = {
+                        customerViewModel.submitReview(
+                            fromUserId = session.userId,
+                            onSuccess = {
+                                navController.popBackStack()
+                                Toast.makeText(context, "Review submitted!", Toast.LENGTH_SHORT).show()
+                            },
+                            onError = { err ->
+                                Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    },
+                    onHomeClick    = args.onHomeClick,
+                    onOrdersClick  = args.onOrdersClick,
+                    onHistoryClick = args.onHistoryClick,
+                    onChatClick    = args.onChatClick,
+                    onProfileClick = args.onProfileClick
+                )
+            }
         }
     }
 
-    // ── CHAT / ACTIVITY (TAB 4) ──
     composable<CustomerChat> {
         val page = it.toRoute<CustomerChat>().page
         val args = sharedArgs()
@@ -382,23 +466,51 @@ fun NavGraphBuilder.customerGraph(
             CustomerChatPage.Notifications -> {
                 LaunchedEffect(Unit) {
                     customerViewModel.fetchNotifications(session.userId)
+                    customerViewModel.fetchChatList(session.userId)
                 }
                 CustomerActivityScreen(
+                    chats = customerViewModel.chatThreads.map { it.toChatContact() },
                     notifications = customerViewModel.notifications,
-                    currentTab     = args.tab,
-                    onHomeClick    = args.onHomeClick,
-                    onOrdersClick  = args.onOrdersClick,
+                    currentTab = args.tab,
+                    onHomeClick = args.onHomeClick,
+                    onOrdersClick = args.onOrdersClick,
                     onHistoryClick = args.onHistoryClick,
                     onChatNavClick = { navController.navigateTab(CustomerChat()) },
                     onProfileClick = args.onProfileClick,
-                    onChatClick    = { navController.navigate(CustomerChat(CustomerChatPage.Details)) }
+                    onChatClick = { contact ->
+
+                        val thread = customerViewModel.chatThreads.find { it.otherName == contact.name }
+                        if (thread != null) {
+                            customerViewModel.selectedThreadId = thread.threadId
+                            customerViewModel.selectedThreadName = thread.otherName
+                            customerViewModel.fetchChatHistory(thread.threadId, session.userId)
+                            navController.navigate(CustomerChat(CustomerChatPage.Details))
+                        }
+                    }
                 )
             }
             CustomerChatPage.Details -> {
-                ChatScreen(
-                    onBack      = { navController.popBackStack() },
-                    onCallClick = {}
-                )
+                val threadId = customerViewModel.selectedThreadId
+                if (threadId != null) {
+                    ChatScreen(
+                        contactName = customerViewModel.selectedThreadName,
+                        contactStatus = "CargoConnect User",
+                        messages = customerViewModel.chatMessages.map {
+                            ChatMessage(
+                                content = it.messageText,
+                                isSentByMe = it.isMine,
+                                timestamp = it.sentAt
+                            )
+                        },
+                        onBack = { navController.popBackStack() },
+                        onCallClick = {},
+                        onSendMessage = { text ->
+                            customerViewModel.sendMessage(threadId, session.userId, text)
+                        }
+                    )
+                } else {
+                    navController.popBackStack()
+                }
             }
         }
     }
@@ -424,7 +536,8 @@ fun NavGraphBuilder.customerGraph(
                 )
             }
             CustomerProfilePage.YourInformation,
-            CustomerProfilePage.EditInformation -> { }
+            CustomerProfilePage.EditInformation,
+            CustomerProfilePage.AllReviews -> { }
         }
     }
 }

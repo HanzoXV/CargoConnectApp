@@ -179,7 +179,6 @@ data class AvailabilityDto(
     @SerializedName("destLong") val destLong: Double,
     @SerializedName("requestedDate") val requestedDate: String,
     @SerializedName("isStrict") val isStrict: Boolean,
-
     @SerializedName("DriverId") val driverId: Int? = null,
     @SerializedName("DriverName") val driverName: String? = null,
     @SerializedName("ContactNo") val contactNo: String? = null,
@@ -188,16 +187,15 @@ data class AvailabilityDto(
     @SerializedName("TotalCapacity") val totalCapacity: Double? = null,
     @SerializedName("PickupCity") val pickupCity: String? = null,
     @SerializedName("DestinationCity") val destinationCity: String? = null,
-
     @SerializedName("Price") val price: Double? = null,
     @SerializedName("IsFull") val isFull: Boolean? = null,
     @SerializedName("RouteId") val routeId: Int? = null,
     @SerializedName("Distance") val distance: Double? = null,
     @SerializedName("Rating") val rating: Double? = null,
     @SerializedName("TotalReviews") val totalReviews: Int? = null,
-
     @SerializedName("DepartureDate") val departureDate: String? = null,
     @SerializedName("ArrivalDate") val arrivalDate: String? = null,
+    @SerializedName("CheckpointID") val checkpointId: Int? = null,
 )
 
 data class DeclineResponseDto(
@@ -230,8 +228,35 @@ data class BookingData(
     val total_weight: Double?,
     val package_count: Int?,
 
+    val customer_user_id: Int?,
+
     val recipient_name: String?,
     val recipient_contact: String?,
 
     val packages: List<PackageDto> = emptyList()
+)
+data class TruckInfoResponse(
+    val vehicle_model: String,
+    val reg_no: String,
+    val weight: WeightStats,
+    val dimensions: DimensionStats,
+    val active_package_count: Int
+)
+
+data class WeightStats(
+    val max_capacity: Double,
+    val used_capacity: Double,
+    val remaining_capacity: Double
+)
+
+data class DimensionStats(
+    val max_dimensions: Dimensions,
+    val used_dimensions: Dimensions,
+    val remaining_dimensions: Dimensions
+)
+
+data class Dimensions(
+    val l: Double,
+    val w: Double,
+    val h: Double
 )

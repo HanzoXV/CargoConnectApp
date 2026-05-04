@@ -46,7 +46,8 @@ enum class DriverProfilePage {
     ActivateRoute,
     SelectRoute,
     AddNewRoute,
-    EstimatedDelivery
+    EstimatedDelivery,
+    AllReviews
 }
 
 @Serializable
@@ -73,8 +74,10 @@ enum class CustomerBookingPage {
     Active,
     Completed,
     Pending,
+    Assigned,
     Details,
-    CancelBooking
+    CancelBooking,
+    Review
 }
 
 @Serializable
@@ -88,5 +91,6 @@ enum class CustomerChatPage {
 enum class CustomerProfilePage {
     Main,
     YourInformation,
-    EditInformation
+    EditInformation,
+    AllReviews
 }

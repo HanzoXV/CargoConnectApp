@@ -36,6 +36,9 @@ interface ApiInterface {
         @Body request: CreateRouteRequest
     ): Response<SaveRouteResponse>
 
+    @POST("api/driver/update-route")
+    suspend fun updateRoute(@Body request: UpdateRouteRequest): Response<RouteIdResponse>
+
     @POST("api/driver/activate-route/{routeId}")
     suspend fun activateRoute(@Path("routeId") routeId: Int): Response<String>
 
@@ -99,7 +102,8 @@ interface ApiInterface {
     @Query("shipmentId") shipmentId: Int,
     @Query("driverId") driverId: Int,
     @Query("routeId") routeId: Int,
-    @Query("fare") fare: Double
+    @Query("fare") fare: Double,
+    @Query("checkpointId") checkpointId: Int,
 ): Response<String>
 
     @POST("api/requests/decline")
@@ -166,4 +170,55 @@ interface ApiInterface {
     suspend fun cancelBooking(
         @Path("bookingId") bookingId: Int
     ): Response<BookingActionResponse>
+
+    @GET("api/reviews/{userId}")
+    suspend fun getAllReviews(@Path("userId") userId: Int): Response<List<ReviewDto>>
+
+    @POST("api/reviews/send")
+    suspend fun sendReview(
+        @Query("fromUserId") fromUserId: Int,
+        @Query("toUserId") toUserId: Int,
+        @Query("tripId") tripId: Int,
+        @Query("rating") rating: Int,
+        @Query("comments") comments: String
+    ): Response<ReviewSentResponse>
+
+    @GET("api/reviews/rating/{userId}")
+    suspend fun getAverageRating(@Path("userId") userId: Int): Response<RatingResponse>
+
+    @GET("api/reviews/booking-info/{bookingId}")
+    suspend fun getReviewInfoForBooking(@Path("bookingId") bookingId: Int): Response<ReviewInfoDto>
+
+    @GET("api/reviews/can-review")
+    suspend fun canReview(
+        @Query("reviewerUserId") reviewerUserId: Int,
+        @Query("bookingId") bookingId: Int
+    ): Response<CanReviewDto>
+
+    //----------------------------------- CHAT SYSTEM
+
+    @POST("api/chat/thread")
+    suspend fun getOrCreateThread(
+        @Query("customerUserId") customerUserId: Int,
+        @Query("driverUserId") driverUserId: Int
+    ): Response<ThreadResponse>
+
+    @GET("api/chat/list/{userId}")
+    suspend fun getChatList(@Path("userId") userId: Int): Response<List<ChatThreadDto>>
+
+    @GET("api/chat/history/{threadId}")
+    suspend fun getChatHistory(
+        @Path("threadId") threadId: Int,
+        @Query("userId") userId: Int
+    ): Response<List<ChatMessageDto>>
+
+    @POST("api/chat/send")
+    suspend fun sendMessage(
+        @Query("threadId") threadId: Int,
+        @Query("senderUserId") senderUserId: Int,
+        @Query("messageText") messageText: String
+    ): Response<SendMessageResponse>
+
+    @GET("api/drivers/{driverId}/truck-info")
+    suspend fun getTruckInfo(@Path("driverId") driverId: Int): Response<TruckInfoResponse>
 }

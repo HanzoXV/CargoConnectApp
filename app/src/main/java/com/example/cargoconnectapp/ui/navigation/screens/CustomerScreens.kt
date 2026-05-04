@@ -32,6 +32,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.os.Build
+import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.compose.ui.tooling.preview.Preview
 import coil.compose.AsyncImage
@@ -66,6 +67,12 @@ fun formatDate(isoString: String?): String {
         }
     }
 }
+fun ChatThreadDto.toChatContact() = ChatContact(
+    name = otherName,
+    lastMessage = lastMessage,
+    time = lastMessageTime?.substringBefore("T") ?: "",
+    hasUnread = unreadCount > 0
+)
 
 // ─────────────────────────────────────────────
 // CUSTOMER DASHBOARD SCREEN
@@ -142,7 +149,6 @@ fun CustomerDashboardScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Total Bookings", fontSize = 13.sp, color = textThemeColor.copy(alpha = 0.6f))
                         Text(customerViewModel.totalBookings.toString(), fontSize = 32.sp, fontWeight = FontWeight.Bold, color = textThemeColor)
-                        Text("+12% from last month", fontSize = 11.sp, color = Color(0xFF4CAF50), fontWeight = FontWeight.SemiBold)
                     }
                     Surface(
                         modifier = Modifier.size(60.dp),
@@ -939,6 +945,7 @@ fun YourBookingsScreen(
     customerViewModel: CustomerViewModel,
     activeBookings: List<CustomerBooking> = emptyList(),
     completedBookings: List<CustomerBooking> = emptyList(),
+    assignedBookings: List<CustomerBooking> = emptyList(),
     pendingBookings: List<ShipmentDto> = emptyList(),
     onDetailsClick: (CustomerBooking) -> Unit = {},
     onContactDriverClick: (CustomerBooking) -> Unit = {},
@@ -962,7 +969,7 @@ fun YourBookingsScreen(
             Spacer(modifier = Modifier.height(32.dp))
             Text("Your Shipments", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
             Spacer(modifier = Modifier.height(24.dp))
-            InteractiveTabRow(tabs = listOf("Active", "Pending", "Completed"), selectedTab = selectedTab, onTabSelected = { selectedTab = it })
+            InteractiveTabRow(tabs = listOf("Active", "Assigned", "Pending", "Completed"), selectedTab = selectedTab, onTabSelected = { selectedTab = it })
             Spacer(modifier = Modifier.height(24.dp))
             LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(bottom = 32.dp)) {
                 when (selectedTab) {
@@ -976,7 +983,8 @@ fun YourBookingsScreen(
                             ) 
                         } 
                     }
-                    "Completed" -> { items(completedBookings) { booking -> CompletedBookingCardOverhauled(booking, onDetails = { onDetailsClick(booking) }, onReview = { onReviewClick(booking) }) } }
+                    "Completed" -> { items(completedBookings) { booking -> CompletedBookingCardOverhauled(booking, onDetails = { onDetailsClick(booking) }, onReview = { onReviewClick(booking) }) }}
+                    "Assigned" -> { items(activeBookings) { booking -> CustomerBookingCardOverhauled(booking, onDetails = { onDetailsClick(booking) }, onContact = { onContactDriverClick(booking) }, onTrack = { onTrackClick(booking) }, onCancel = { onCancelClick(booking) }) } }
                 }
             }
         }
@@ -1124,8 +1132,8 @@ fun CustomerActivityScreen(
             InteractiveTabRow(tabs = listOf("Chats", "Notifications"), selectedTab = selectedTab, onTabSelected = { selectedTab = it })
             Spacer(modifier = Modifier.height(16.dp))
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (selectedTab == "Chats") { items(chats) { EnhancedChatListItem(it.name, it.lastMessage, it.time, it.hasUnread, onClick = { onChatClick(it) }) } }
-                else { items(notifications) { EnhancedNotificationCard(it.message, it.created_at, it.is_read) } }
+                if (selectedTab == "Chats") items(chats) { EnhancedChatListItem(it, onClick = { onChatClick(it) }) }
+                else items(notifications) { EnhancedNotificationCard(it) }
             }
         }
     }
@@ -1204,6 +1212,104 @@ fun CancelBookingScreen(
             GlassCard { TextField(value = reason, onValueChange = { reason = it }, placeholder = { Text("Cancellation Reason...") }, modifier = Modifier.fillMaxWidth().height(120.dp), colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent)) }
             Spacer(modifier = Modifier.height(32.dp))
             Button(onClick = { onConfirmCancel(reason) }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = statusRedColor)) { Text("Confirm Cancellation") }
+        }
+    }
+}
+
+@Composable
+fun ReviewScreen(
+    customerViewModel: CustomerViewModel,
+    onBack: () -> Unit = {},
+    onSubmit: () -> Unit = {},
+    onHomeClick: () -> Unit = {},
+    onOrdersClick: () -> Unit = {},
+    onHistoryClick: () -> Unit = {},
+    onChatClick: () -> Unit = {},
+    onProfileClick: () -> Unit = {},
+    currentTab: CustomerDestination = CustomerDashboard()
+) {
+    val context = LocalContext.current
+    val data = customerViewModel.canReviewData
+
+    Scaffold(
+        bottomBar = { CustomerBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) },
+        containerColor = backgroundColor
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Spacer(modifier = Modifier.height(24.dp))
+            IconButton(onClick = onBack, modifier = Modifier.background(Color.White, CircleShape)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("Rate your driver", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            Text(data?.targetName ?: "Driver", fontSize = 18.sp, color = actionTealColor, fontWeight = FontWeight.Bold)
+            
+            Spacer(modifier = Modifier.height(32.dp))
+            
+            // 5 Star Rating Selector
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                repeat(5) { index ->
+                    val starIndex = index + 1
+                    Icon(
+                        imageVector = if (starIndex <= customerViewModel.reviewRating) Icons.Default.Star else Icons.Default.StarBorder,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clickable { customerViewModel.reviewRating = starIndex },
+                        tint = if (starIndex <= customerViewModel.reviewRating) actionTealColor else Color.Gray.copy(alpha = 0.5f)
+                    )
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(32.dp))
+            
+            Text("Comments (Optional)", fontWeight = FontWeight.Bold, color = Color.Gray, fontSize = 14.sp)
+            Spacer(modifier = Modifier.height(8.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth().height(150.dp).shadow(4.dp, RoundedCornerShape(12.dp)),
+                color = Color.White,
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                TextField(
+                    value = customerViewModel.reviewComments,
+                    onValueChange = { customerViewModel.reviewComments = it },
+                    placeholder = { Text("How was your experience?", fontSize = 14.sp) },
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent
+                    ),
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            
+            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(32.dp))
+            
+            Button(
+                onClick = onSubmit,
+                enabled = customerViewModel.reviewRating > 0 && !customerViewModel.isLoading,
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
+            ) {
+                if (customerViewModel.isLoading) {
+                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                } else {
+                    Text("Submit Review", fontWeight = FontWeight.Bold)
+                }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
@@ -1304,9 +1410,10 @@ fun CustomerBookingCardOverhauled(
         Spacer(modifier = Modifier.height(16.dp))
         Text("Route", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
         Text(booking.route, fontSize = 14.sp, color = textThemeColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        
+
         Spacer(modifier = Modifier.height(16.dp))
-        
+
+        // Action buttons row 1
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
                 onClick = onDetails,
@@ -1316,7 +1423,7 @@ fun CustomerBookingCardOverhauled(
             ) {
                 Text("Details", fontSize = 12.sp, color = textThemeColor)
             }
-            
+
             if (booking.status == BookingStatus.InTransit) {
                 Button(
                     onClick = onTrack,
@@ -1333,10 +1440,28 @@ fun CustomerBookingCardOverhauled(
                     onClick = onCancel,
                     modifier = Modifier.weight(1.5f).height(40.dp),
                     shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = statusRedColor.copy(alpha = 0.1f), contentColor = statusRedColor)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = statusRedColor.copy(alpha = 0.1f),
+                        contentColor = statusRedColor
+                    )
                 ) {
                     Text("Cancel", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
+            }
+        }
+
+        // Contact Driver button — only for Assigned and InTransit
+        if (booking.status == BookingStatus.Assigned || booking.status == BookingStatus.InTransit) {
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onContact,
+                modifier = Modifier.fillMaxWidth().height(40.dp),
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, actionTealColor.copy(alpha = 0.4f))
+            ) {
+                Icon(Icons.Default.Chat, null, modifier = Modifier.size(14.dp), tint = actionTealColor)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Contact Driver", fontSize = 12.sp, color = actionTealColor, fontWeight = FontWeight.Bold)
             }
         }
     }

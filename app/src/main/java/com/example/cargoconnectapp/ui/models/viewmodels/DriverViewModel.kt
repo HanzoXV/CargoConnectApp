@@ -2,6 +2,7 @@ package com.example.cargoconnectapp.ui.models.viewmodels
 
 import android.util.Log
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -24,6 +25,24 @@ enum class RouteTarget { ACTIVE, NEXT }
 class DriverViewModel : ViewModel() {
 
     // ── State ─────────────────────────────────────────────────────────────────
+
+    var templateRouteForUpdate by mutableStateOf<RouteData?>(null)
+
+    var chatThreads by mutableStateOf<List<ChatThreadDto>>(emptyList())
+        private set
+
+    var showReviewDialog by mutableStateOf(false)
+    var pendingReviewBookingId by mutableStateOf<Int?>(null)
+    var reviewTargetUserId by mutableStateOf<Int?>(null)
+
+    var truckInfo by mutableStateOf<TruckInfoResponse?>(null)
+        private set
+    var selectedThreadId by mutableStateOf<Int?>(null)
+    var selectedThreadName by mutableStateOf<String>("")
+    var chatMessages by mutableStateOf<List<ChatMessageDto>>(emptyList())
+        private set
+
+    var pendingReviewTripId by mutableStateOf<Int?>(null)
 
     var activeRoute by mutableStateOf<RouteData?>(null)
         private set
@@ -90,6 +109,14 @@ class DriverViewModel : ViewModel() {
     var notifications by mutableStateOf<List<NotificationDto>>(emptyList())
         private set
 
+    // ── Review State ──
+    var reviews by mutableStateOf<List<ReviewDto>>(emptyList())
+        private set
+    var averageRating by mutableDoubleStateOf(0.0)
+        private set
+    var totalReviews by mutableIntStateOf(0)
+        private set
+
     // ── Route Planning State (Temporary) ──────────────────────────────────────
     
     val plannedPoints = mutableStateListOf<GeoPoint>()
@@ -119,9 +146,13 @@ class DriverViewModel : ViewModel() {
         plannedIsFlammable = false
         plannedKeepUpright = false
         plannedShipmentType = "Shared"
+        templateRouteForUpdate = null
     }
 
     fun clearAllData() {
+        truckInfo = null
+        currentCapacity = 0
+        totalCapacity = 0
         activeRoute = null
         nextRoute = null
         pastRoutes = emptyList()
@@ -133,6 +164,7 @@ class DriverViewModel : ViewModel() {
         completedStops = 0
         distances.clear()
         driverRequests = null
+        templateRouteForUpdate = null
         clearPlannedRoute()
         routeActivationTarget = RouteTarget.ACTIVE
         errorMessage = null
@@ -146,6 +178,9 @@ class DriverViewModel : ViewModel() {
         checkpointShipments = null
         notifications = emptyList()
         selectedCheckpointId = 0
+        reviews = emptyList()
+        averageRating = 0.0
+        totalReviews = 0
     }
 
     // ── Fetch functions ───────────────────────────────────────────────────────
@@ -186,6 +221,45 @@ class DriverViewModel : ViewModel() {
             }
         }
     }
+    fun fetchTruckInfo(driverId: Int) {
+        viewModelScope.launch {
+            isLoading = true
+            errorMessage = null
+            try {
+                val response = RetrofitClient.instance.getTruckInfo(driverId)
+                if (response.isSuccessful) {
+                    val info = response.body()
+                    truckInfo = info
+
+                    // Sync with existing capacity/dimension states in your ViewModel
+                    info?.let {
+                        // Update Weight
+                        currentCapacity = it.weight.used_capacity.toInt()
+                        totalCapacity = it.weight.max_capacity.toInt()
+
+                        // Update Dimensions
+                        totalDimensions = Dimensions(
+                            length = it.dimensions.max_dimensions.l.toInt(),
+                            width = it.dimensions.max_dimensions.w.toInt(),
+                            height = it.dimensions.max_dimensions.h.toInt()
+                        )
+                        currentDimensions = Dimensions(
+                            length = it.dimensions.remaining_dimensions.l.toInt(),
+                            width = it.dimensions.remaining_dimensions.w.toInt(),
+                            height = it.dimensions.remaining_dimensions.h.toInt()
+                        )
+                    }
+                } else {
+                    errorMessage = response.errorBody()?.string()
+                }
+            } catch (e: Exception) {
+                errorMessage = e.message
+                Log.e("DriverViewModel", "fetchTruckInfo failed", e)
+            } finally {
+                isLoading = false
+            }
+        }
+    }
 
     fun fetchNextRoute(driverId: Int) {
         viewModelScope.launch {
@@ -209,7 +283,63 @@ class DriverViewModel : ViewModel() {
             }
         }
     }
+    fun checkAndTriggerReview(bookingId: Int, driverUserId: Int) {
+        viewModelScope.launch {
+            try {
+                val infoResponse = RetrofitClient.instance.getReviewInfoForBooking(bookingId)
+                if (infoResponse.isSuccessful) {
+                    val info = infoResponse.body() ?: return@launch
+                    val canReviewResponse = RetrofitClient.instance.canReview(
+                        reviewerUserId = driverUserId,
+                        bookingId = bookingId
+                    )
+                    if (canReviewResponse.isSuccessful && canReviewResponse.body()?.canReview == true) {
+                        pendingReviewBookingId = bookingId
+                        reviewTargetUserId = info.targetUserId
+                        pendingReviewTripId = info.tripId  // ← store it here
+                        showReviewDialog = true
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("DriverViewModel", "checkAndTriggerReview failed", e)
+            }
+        }
+    }
 
+    fun submitReview(
+        fromUserId: Int,
+        tripId: Int,
+        rating: Int,
+        comments: String,
+        onComplete: () -> Unit = {}
+    ) {
+        val toUserId = reviewTargetUserId ?: return
+        viewModelScope.launch {
+            try {
+                RetrofitClient.instance.sendReview(
+                    fromUserId = fromUserId,
+                    toUserId = toUserId,
+                    tripId = tripId,
+                    rating = rating,
+                    comments = comments
+                )
+            } catch (e: Exception) {
+                Log.e("DriverViewModel", "submitReview failed", e)
+            } finally {
+                showReviewDialog = false
+                pendingReviewBookingId = null
+                reviewTargetUserId = null
+                onComplete()
+            }
+        }
+    }
+
+    fun dismissReview() {
+        showReviewDialog = false
+        pendingReviewBookingId = null
+        reviewTargetUserId = null
+        pendingReviewTripId = null
+    }
     fun fetchAllRoutes(driverId: Int) {
         viewModelScope.launch {
             isLoading = true
@@ -314,6 +444,42 @@ class DriverViewModel : ViewModel() {
                 if (response.isSuccessful) {
                     fetchNextRoute(driverId)
                 } else errorMessage = response.errorBody()?.string()
+            } catch (e: Exception) {
+                errorMessage = e.message
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+    fun updateRoute(
+        request: UpdateRouteRequest,
+        driverId: Int,
+        onComplete: () -> Unit = {}
+    ) {
+        val target = routeActivationTarget
+        viewModelScope.launch {
+            isLoading = true
+            errorMessage = null
+            try {
+                val updateResponse = RetrofitClient.instance.updateRoute(request)
+                if (updateResponse.isSuccessful) {
+                    val routeId = updateResponse.body()?.routeId ?: -1
+                    if (routeId != -1) {
+                        if (target == RouteTarget.ACTIVE) {
+                            RetrofitClient.instance.activateRoute(routeId)
+                        } else {
+                            RetrofitClient.instance.scheduleNextRoute(routeId)
+                        }
+                    }
+                    onComplete()
+                    clearPlannedRoute()
+                    templateRouteForUpdate = null
+                    fetchActiveRoute(driverId)
+                    fetchNextRoute(driverId)
+                    fetchAllRoutes(driverId)
+                } else {
+                    errorMessage = updateResponse.errorBody()?.string()
+                }
             } catch (e: Exception) {
                 errorMessage = e.message
             } finally {
@@ -594,6 +760,97 @@ class DriverViewModel : ViewModel() {
                 errorMessage = e.message
             } finally {
                 isLoading = false
+            }
+        }
+    }
+
+    fun fetchChatList(userId: Int) {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.instance.getChatList(userId)
+                if (response.isSuccessful) {
+                    chatThreads = response.body() ?: emptyList()
+                }
+            } catch (e: Exception) {
+                Log.e("CustomerViewModel", "fetchChatList failed", e)
+            }
+        }
+    }
+    fun getOrCreateThread(
+        driverUserId: Int,
+        customerBooking: BookingData,
+        onSuccess: (threadId: Int, otherName: String) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.instance.getOrCreateThread(
+                    customerUserId = customerBooking.customer_user_id ?: return@launch,
+                    driverUserId = driverUserId
+                )
+                if (response.isSuccessful) {
+                    val threadId = response.body()?.threadId ?: return@launch
+                    selectedThreadId = threadId
+                    selectedThreadName = customerBooking.sender_name ?: "Customer"
+                    onSuccess(threadId, customerBooking.sender_name ?: "Customer")
+                }
+            } catch (e: Exception) {
+                Log.e("DriverViewModel", "getOrCreateThread failed", e)
+            }
+        }
+    }
+    fun fetchChatHistory(threadId: Int, userId: Int) {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.instance.getChatHistory(threadId, userId)
+                if (response.isSuccessful) {
+                    chatMessages = response.body() ?: emptyList()
+                }
+            } catch (e: Exception) {
+                Log.e("CustomerViewModel", "fetchChatHistory failed", e)
+            }
+        }
+    }
+
+    fun sendMessage(threadId: Int, senderUserId: Int, messageText: String, onComplete: () -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.instance.sendMessage(threadId, senderUserId, messageText)
+                if (response.isSuccessful) {
+                    fetchChatHistory(threadId, senderUserId)
+                    onComplete()
+                }
+            } catch (e: Exception) {
+                Log.e("CustomerViewModel", "sendMessage failed", e)
+            }
+        }
+    }
+
+    fun fetchReviews(userId: Int) {
+        viewModelScope.launch {
+            isLoading = true
+            try {
+                val response = RetrofitClient.instance.getAllReviews(userId)
+                if (response.isSuccessful) {
+                    reviews = response.body() ?: emptyList()
+                }
+            } catch (e: Exception) {
+                Log.e("DriverViewModel", "fetchReviews failed", e)
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    fun fetchAverageRating(userId: Int) {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.instance.getAverageRating(userId)
+                if (response.isSuccessful) {
+                    averageRating = response.body()?.averageRating ?: 0.0
+                    totalReviews = response.body()?.totalReviews ?: 0
+                }
+            } catch (e: Exception) {
+                Log.e("DriverViewModel", "fetchAverageRating failed", e)
             }
         }
     }

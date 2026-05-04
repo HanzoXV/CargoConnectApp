@@ -38,6 +38,7 @@ class AuthViewModel (private val sessionViewModel: UserSessionViewModel) : ViewM
 
     var userRole by mutableStateOf(UserRoles.NotSpecified)
 
+    var licenseNo by mutableStateOf("")
     var userFirstName by mutableStateOf("")
     var userLastName by mutableStateOf("")
     var userCNIC by mutableStateOf("")
@@ -268,7 +269,7 @@ class AuthViewModel (private val sessionViewModel: UserSessionViewModel) : ViewM
                 streetNo = userStreetAddress,
                 city = userCity,
                 photoLink = uploadedPhotoLink ?: "",
-                licenseNo = userCNIC,
+                licenseNo = licenseNo,
                 vehicle = vehicle,
                 documents = documents
             )

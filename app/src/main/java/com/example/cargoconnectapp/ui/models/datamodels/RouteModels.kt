@@ -34,7 +34,18 @@ data class RouteData(
     val schedule: RouteSchedule? = null,
 
     @SerializedName("checkpoints")
-    val checkpoints: List<CheckpointData>? = null
+    val checkpoints: List<CheckpointData>? = null,
+
+    @SerializedName("isFragile")
+    val isFragile: Boolean = false,
+    @SerializedName("isLiquid")
+    val isLiquid: Boolean = false,
+    @SerializedName("isFlammable")
+    val isFlammable: Boolean = false,
+    @SerializedName("keepUpright")
+    val keepUpright: Boolean = false,
+    @SerializedName("shipmentType")
+    val shipmentType: String,
 )
 
 data class RouteSchedule(
@@ -58,7 +69,10 @@ data class CheckpointData(
     @SerializedName("reached")
     val reached: Boolean? = null,
 )
-
+data class RouteIdResponse (
+    @SerializedName("routeId")
+    val routeId: Int
+)
 data class SaveRouteResponse(
     @SerializedName("routeId")
     val routeId: Int,
@@ -152,4 +166,23 @@ data class StartTripResponse(
     val checkpoint_name: String,
     val trip_id: Int?,
     val updated_bookings: Int
+)
+
+data class UpdateRouteRequest(
+    val routeId: Int,
+    val driverId: Int,
+    val departureDate: String,
+    val arrivalDate: String,
+    val baseFare: Double,
+    val isFragile: Boolean,
+    val isLiquid: Boolean,
+    val isFlammable: Boolean,
+    val keepUpright: Boolean,
+    val shipmentType: String,
+    val points: List<RouteCheckpointUpdate>
+)
+
+data class RouteCheckpointUpdate(
+    val sequenceNo: Int,
+    val estimatedArrival: String
 )

@@ -3,6 +3,7 @@ package com.example.cargoconnectapp.ui.models.datamodels
 import com.google.gson.annotations.SerializedName
 
 data class CustomerBookingDto(
+    val driver_user_id: Int?,
     @SerializedName(value = "id", alternate = ["Id", "ID", "booking_id", "BookingId"]) val id: Int,
     @SerializedName(value = "status", alternate = ["Status"]) val status: String,
     @SerializedName(value = "amount", alternate = ["Amount", "fare", "Fare"]) val amount: Double,

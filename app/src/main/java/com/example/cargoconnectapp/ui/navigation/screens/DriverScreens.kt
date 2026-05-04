@@ -7,6 +7,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,13 +45,16 @@ import com.example.cargoconnectapp.ui.models.map.OSMContainer
 import com.example.cargoconnectapp.ui.models.map.getAddressFromGeoPoint
 import org.osmdroid.util.GeoPoint
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.ui.unit.Dp
 import com.example.cargoconnectapp.ui.models.datamodels.BookingData
 import com.example.cargoconnectapp.ui.models.datamodels.PackageDto
 import com.example.cargoconnectapp.ui.models.datamodels.CheckpointShipmentsResponse
 import com.example.cargoconnectapp.ui.models.datamodels.CheckpointShipmentData
 import com.example.cargoconnectapp.ui.models.datamodels.CreateRouteRequest
 import com.example.cargoconnectapp.ui.models.datamodels.NotificationDto
+import com.example.cargoconnectapp.ui.models.datamodels.ReviewDto
 import com.example.cargoconnectapp.ui.models.datamodels.RouteCheckpointRequest
+import com.example.cargoconnectapp.ui.models.datamodels.RouteData
 import com.example.cargoconnectapp.ui.models.helpermodels.PackageColorPool
 import com.example.cargoconnectapp.ui.models.viewmodels.UserSessionViewModel
 import java.time.LocalDate
@@ -227,6 +231,7 @@ fun InteractiveTabRow(
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun DriverDashboardScreen(
+    driverId: Int,
     driverViewModel: DriverViewModel,
     onHomeClick: () -> Unit = {},
     onOrdersClick: () -> Unit = {},
@@ -246,6 +251,12 @@ fun DriverDashboardScreen(
     val reachedCount = checkpoints.count { it.reached ?: false }
     var selectedTab by remember { mutableStateOf("Trip Info") }
     val calculatedDistances = remember { mutableStateListOf<Double>() }
+
+    LaunchedEffect(selectedTab) {
+        if (selectedTab == "Truck Info") {
+            driverViewModel.fetchTruckInfo(driverId)
+        }
+    }
 
     val tripStarted = activeRoute?.checkpoints?.any { it.reached == true } == true
     val nextCheckpointData = checkpoints.firstOrNull { it.reached != true }
@@ -383,6 +394,8 @@ fun DriverDashboardScreen(
                     }
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        val truck = driverViewModel.truckInfo
+
                         // Visual Truck Card
                         Box(
                             modifier = Modifier
@@ -392,44 +405,70 @@ fun DriverDashboardScreen(
                                 .background(Brush.horizontalGradient(listOf(actionTealColor, actionTealColor.copy(alpha = 0.6f)))),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("🚛", fontSize = 80.sp)
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("🚛", fontSize = 60.sp)
+                                if (truck != null) {
+                                    Text(truck.vehicle_model, color = Color.White, fontWeight = FontWeight.Bold)
+                                    Text(truck.reg_no, color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
+                                }
+                            }
                         }
 
                         // Capacity Card
                         GlassCard {
                             Text("Cargo Load", fontWeight = FontWeight.Bold, color = textThemeColor)
                             Spacer(modifier = Modifier.height(16.dp))
-                            val loadPercent = if (driverViewModel.totalCapacity > 0)
-                                driverViewModel.currentCapacity.toFloat() / driverViewModel.totalCapacity else 0f
+
+                            val weight = truck?.weight
+                            val loadPercent = if (weight != null && weight.max_capacity > 0)
+                                (weight.used_capacity / weight.max_capacity).toFloat() else 0f
+
                             AnimatedProgressBar(progress = loadPercent, color = statusBlueColor, label = "Weight Utilization")
 
                             Spacer(modifier = Modifier.height(24.dp))
 
-                            EnhancedCounter(
-                                label = "Current Load",
-                                value = "${driverViewModel.currentCapacity} KG",
-                                onValueChange = { delta ->
-                                    driverViewModel.setCapacity(
-                                        (driverViewModel.currentCapacity + delta).coerceIn(0, driverViewModel.totalCapacity),
-                                        driverViewModel.totalCapacity
-                                    )
-                                }
-                            )
+                            Row(modifier = Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+                                InfoMetric(label = "Used", value = "${weight?.used_capacity ?: 0} KG")
+                                InfoMetric(label = "Available", value = "${weight?.remaining_capacity ?: 0} KG")
+                            }
                         }
 
                         // Dimensions Card
                         GlassCard {
-                            Text("Space Dimensions", fontWeight = FontWeight.Bold, color = textThemeColor)
+                            Text("Remaining Space Dimensions", fontWeight = FontWeight.Bold, color = textThemeColor)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Current available linear space in cargo hold", fontSize = 12.sp, color = textThemeColor.copy(alpha = 0.5f))
+
                             Spacer(modifier = Modifier.height(16.dp))
-                            DimensionItem("Length", driverViewModel.currentDimensions.length) { driverViewModel.setCurrentDimensions(it, driverViewModel.currentDimensions.width, driverViewModel.currentDimensions.height) }
-                            DimensionItem("Width", driverViewModel.currentDimensions.width) { driverViewModel.setCurrentDimensions(driverViewModel.currentDimensions.length, it, driverViewModel.currentDimensions.height) }
-                            DimensionItem("Height", driverViewModel.currentDimensions.height) { driverViewModel.setCurrentDimensions(driverViewModel.currentDimensions.length, driverViewModel.currentDimensions.width, it) }
+
+                            val dim = truck?.dimensions?.remaining_dimensions
+                            DimensionDisplayItem("Length", "${dim?.l ?: 0} m")
+                            DimensionDisplayItem("Width", "${dim?.w ?: 0} m")
+                            DimensionDisplayItem("Height", "${dim?.h ?: 0} m")
                         }
                     }
                 }
             }
             Spacer(modifier = Modifier.height(32.dp))
         }
+    }
+}
+@Composable
+fun InfoMetric(label: String, value: String) {
+    Column {
+        Text(label, fontSize = 12.sp, color = textThemeColor.copy(alpha = 0.6f))
+        Text(value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = textThemeColor)
+    }
+}
+
+@Composable
+fun DimensionDisplayItem(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(label, color = textThemeColor.copy(alpha = 0.7f))
+        Text(value, fontWeight = FontWeight.Bold, color = actionTealColor)
     }
 }
 
@@ -829,6 +868,7 @@ fun CustomersScreen(
     completedBookings: List<BookingData> = emptyList(),
     canceledBookings: List<BookingData> = emptyList(),
     onDetailsClick: (BookingData) -> Unit = {},
+    onContactClick: (BookingData) -> Unit = {},
     onHomeClick: () -> Unit = {},
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
@@ -901,11 +941,15 @@ fun CustomersScreen(
                         BookingInteractiveCard(
                             booking = booking,
                             accentColor = accentColor,
-                            onDetails = { onDetailsClick(booking) }
+                            onDetails = { onDetailsClick(booking) },
+                            onContact = if (selectedTab == "Pending" || selectedTab == "In-Transit") {
+                                { onContactClick(booking) }
+                            } else null
                         )
                     }
                 }
             }
+
         }
     }
 }
@@ -925,7 +969,8 @@ fun SectionTitle(text: String) {
 fun BookingInteractiveCard(
     booking: BookingData,
     accentColor: Color,
-    onDetails: (BookingData) -> Unit
+    onDetails: (BookingData) -> Unit,
+    onContact: ((BookingData) -> Unit)? = null  // ← add this
 ) {
     GlassCard(modifier = Modifier.padding(vertical = 8.dp).clickable { onDetails(booking) }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -944,13 +989,13 @@ fun BookingInteractiveCard(
                 Text(booking.status, modifier = Modifier.padding(6.dp), fontSize = 10.sp, color = accentColor, fontWeight = FontWeight.Bold)
             }
         }
-        
+
         Spacer(modifier = Modifier.height(16.dp))
         Text("Amount: ${booking.amount} PKR", fontSize = 13.sp, color = textThemeColor.copy(alpha = 0.7f))
         booking.pickup_date?.let {
             Text("Pickup Date: $it", fontSize = 13.sp, color = textThemeColor.copy(alpha = 0.7f))
         }
-        
+
         Spacer(modifier = Modifier.height(16.dp))
         Button(
             onClick = { onDetails(booking) },
@@ -959,6 +1004,21 @@ fun BookingInteractiveCard(
             colors = ButtonDefaults.buttonColors(containerColor = accentColor)
         ) {
             Text("View Details", fontWeight = FontWeight.Bold)
+        }
+
+        // Contact Customer — only for Assigned and In-Transit
+        if (onContact != null && (booking.status == "Assigned" || booking.status == "In-Transit")) {
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { onContact(booking) },
+                modifier = Modifier.fillMaxWidth().height(40.dp),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, accentColor.copy(alpha = 0.4f))
+            ) {
+                Icon(Icons.Default.Chat, null, modifier = Modifier.size(14.dp), tint = accentColor)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Contact Customer", fontSize = 12.sp, color = accentColor, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
@@ -1108,6 +1168,9 @@ fun CheckpointShipmentsScreen(
     isStartCheckpoint: Boolean = false,  // NEW
     onPickup: (Int) -> Unit = {},
     onDeliver: (Int) -> Unit = {},
+    showReviewDialog: Boolean = false,
+    onReviewSubmit: (rating: Int, comment: String) -> Unit = { _, _ -> },
+    onReviewDismiss: () -> Unit = {},
     onConfirm: () -> Unit = {},
     onBack: () -> Unit = {},
     onHomeClick: () -> Unit = {},
@@ -1245,6 +1308,12 @@ fun CheckpointShipmentsScreen(
                 }
             }
             Spacer(modifier = Modifier.height(8.dp))
+        }
+        if (showReviewDialog) {
+            ReviewDialog(
+                onSubmit = onReviewSubmit,
+                onDismiss = onReviewDismiss
+            )
         }
     }
 }
@@ -1648,10 +1717,12 @@ fun EnhancedNotificationCard(notif: NotificationDto) {
 fun ProfileScreen(
     fullName: String = "",
     rating: Float = 4.8f,
+    numberOfReviews: Int = 0,
     isSwitchedToCustomer: Boolean = false,
     onYourInformationClick: () -> Unit = {},
     onActivateRouteClick: () -> Unit = {},
     onLogoutClick: () -> Unit = {},
+    onReviewsClick: () -> Unit = {},
     onSwitchRoleToggle: (Boolean) -> Unit = {},
     onHomeClick: () -> Unit = {},
     onOrdersClick: () -> Unit = {},
@@ -1721,7 +1792,7 @@ fun ProfileScreen(
                     Text(fullName, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Star, null, tint = statusOrangeColor, modifier = Modifier.size(16.dp))
-                        Text(" $rating Driver Rating", fontSize = 14.sp, color = Color.Gray, fontWeight = FontWeight.Medium)
+                        Text(" $rating Driver Rating ($numberOfReviews)", fontSize = 14.sp, color = Color.Gray, fontWeight = FontWeight.Medium)
                     }
                 }
             }
@@ -1731,6 +1802,7 @@ fun ProfileScreen(
                 ProfileMenuCard("Personal Information", Icons.Default.Badge, onYourInformationClick)
                 ProfileMenuCard("Route Management", Icons.Default.Route, onActivateRouteClick)
                 ProfileMenuCard("Settings & Security", Icons.Default.Settings, {})
+                ProfileMenuCard("Reviews", Icons.Default.Star, onReviewsClick)
 
                 Spacer(modifier = Modifier.height(24.dp))
 
@@ -1761,7 +1833,176 @@ fun ProfileScreen(
         }
     }
 }
+@Composable
+fun AllReviewsScreen(
+    reviews: List<ReviewDto>,
+    averageRating: Double,
+    totalReviews: Int,
+    isLoading: Boolean,
+    onBack: () -> Unit,
+    currentTab: DriverDestination,
+    onHomeClick: () -> Unit,
+    onOrdersClick: () -> Unit,
+    onHistoryClick: () -> Unit,
+    onChatClick: () -> Unit,
+    onProfileClick: () -> Unit
+) {
+    Scaffold(
+        bottomBar = {
+            DashboardBottomBar(
+                currentTab = currentTab,
+                onHomeClick = onHomeClick,
+                onOrdersClick = onOrdersClick,
+                onHistoryClick = onHistoryClick,
+                onChatClick = onChatClick,
+                onProfileClick = onProfileClick
+            )
+        },
+        containerColor = backgroundColor
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = textThemeColor)
+                }
+                Text(
+                    "Ratings & Feedback",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = textThemeColor
+                )
+            }
 
+            if (isLoading) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = actionTealColor)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Summary Card (Matches RatingResponse fields)
+                    item {
+                        GlassCard {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "%.1f".format(averageRating),
+                                        fontSize = 42.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = actionTealColor
+                                    )
+                                    Text(
+                                        "Average Rating",
+                                        fontSize = 12.sp,
+                                        color = Color.Gray
+                                    )
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    RatingBar(rating = averageRating.toFloat())
+                                    Text(
+                                        "$totalReviews total reviews",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = textThemeColor
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    if (reviews.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier.fillParentMaxHeight(0.6f).fillMaxWidth(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("No feedback received yet", color = Color.Gray)
+                            }
+                        }
+                    } else {
+                        items(reviews) { review ->
+                            ReviewItem(review)
+                        }
+                    }
+
+                    item { Spacer(modifier = Modifier.height(24.dp)) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ReviewItem(review: ReviewDto) {
+    GlassCard {
+        Column(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Column {
+                    Text(
+                        // Uses reviewerName from your DTO
+                        text = review.reviewerName ?: "Anonymous User",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = textThemeColor
+                    )
+                    // Uses createdAt from your DTO
+                    Text(
+                        text = review.createdAt?.split("T")?.firstOrNull() ?: "",
+                        fontSize = 11.sp,
+                        color = Color.Gray
+                    )
+                }
+                // Uses rating from your DTO
+                RatingBar(rating = review.rating.toFloat(), size = 12.dp)
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                // Uses comments (plural) from your DTO
+                text = review.comments ?: "No written feedback provided.",
+                fontSize = 14.sp,
+                color = textThemeColor.copy(alpha = 0.8f),
+                lineHeight = 20.sp
+            )
+        }
+    }
+}
+
+@Composable
+fun RatingBar(rating: Float, size: Dp = 18.dp) {
+    Row {
+        repeat(5) { index ->
+            Icon(
+                imageVector = Icons.Default.Star,
+                contentDescription = null,
+                modifier = Modifier.size(size),
+                tint = if (index < rating) statusOrangeColor else Color.LightGray.copy(alpha = 0.5f)
+            )
+        }
+    }
+}
 @Composable
 fun ProfileMenuCard(title: String, icon: ImageVector, onClick: () -> Unit) {
     Surface(
@@ -1929,7 +2170,7 @@ fun ChatBubbleEnhanced(message: ChatMessage) {
 // ADDITIONAL SCREENS (Simple Styling)
 // ─────────────────────────────────────────────
 
-@Composable
+/*@Composable
 fun ActivateRouteScreen(
     activeRoute: String? = "No Active Route",
     activeVia: String? = null,
@@ -1975,6 +2216,261 @@ fun ActivateRouteScreen(
                     }
                     Text(if (nextRoute == null) "ADD" else "CHANGE", fontSize = 12.sp, color = actionTealColor, fontWeight = FontWeight.Bold)
                 }
+            }
+        }
+    }
+}*/
+@RequiresApi(Build.VERSION_CODES.O)
+@Composable
+fun ActivateRouteScreen(
+    activeRouteLabel: String? = null,
+    activeVia: String? = null,
+    nextRouteLabel: String? = null,
+    nextVia: String? = null,
+    pastRoutes: List<RouteData> = emptyList(),
+    isLoading: Boolean = false,
+    onCreateNew: () -> Unit = {},
+    onMakeActive: (RouteData) -> Unit = {},
+    onMakeNext: (RouteData) -> Unit = {},
+    onHomeClick: () -> Unit = {},
+    onOrdersClick: () -> Unit = {},
+    onHistoryClick: () -> Unit = {},
+    onChatClick: () -> Unit = {},
+    onProfileClick: () -> Unit = {},
+    currentTab: DriverDestination = DriverDashboard()
+) {
+    Scaffold(
+        bottomBar = {
+            DashboardBottomBar(
+                currentTab, onHomeClick, onOrdersClick,
+                onHistoryClick, onChatClick, onProfileClick
+            )
+        },
+        containerColor = backgroundColor
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Spacer(modifier = Modifier.height(32.dp))
+            Text(
+                "Route Management",
+                fontSize = 28.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = textThemeColor
+            )
+            Text(
+                "Manage your active and upcoming routes",
+                fontSize = 14.sp,
+                color = textThemeColor.copy(alpha = 0.55f)
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // ── Create New button ─────────────────────────────────────────────
+            Button(
+                onClick = onCreateNew,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Create New Route", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            }
+
+            Spacer(modifier = Modifier.height(28.dp))
+
+            // ── Active Route ──────────────────────────────────────────────────
+            SectionLabel("Active Route")
+            Spacer(modifier = Modifier.height(8.dp))
+            GlassCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        modifier = Modifier.size(40.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        color = actionTealColor.copy(alpha = 0.12f)
+                    ) {
+                        Icon(
+                            Icons.Default.PlayCircle,
+                            contentDescription = null,
+                            tint = actionTealColor,
+                            modifier = Modifier.padding(8.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text(
+                            activeRouteLabel ?: "No active route",
+                            fontWeight = FontWeight.Bold,
+                            color = if (activeRouteLabel != null) textThemeColor
+                            else textThemeColor.copy(alpha = 0.4f)
+                        )
+                        if (activeVia != null) {
+                            Text(activeVia, fontSize = 12.sp, color = Color.Gray)
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // ── Next Route ────────────────────────────────────────────────────
+            SectionLabel("Upcoming Route")
+            Spacer(modifier = Modifier.height(8.dp))
+            GlassCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        modifier = Modifier.size(40.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color.Gray.copy(alpha = 0.1f)
+                    ) {
+                        Icon(
+                            Icons.Default.Schedule,
+                            contentDescription = null,
+                            tint = if (nextRouteLabel != null) actionTealColor else Color.Gray,
+                            modifier = Modifier.padding(8.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text(
+                            nextRouteLabel ?: "No route scheduled",
+                            fontWeight = FontWeight.Medium,
+                            color = if (nextRouteLabel != null) textThemeColor
+                            else textThemeColor.copy(alpha = 0.4f)
+                        )
+                        if (nextVia != null) {
+                            Text(nextVia, fontSize = 12.sp, color = Color.Gray)
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(28.dp))
+
+            // ── Past Routes ───────────────────────────────────────────────────
+            SectionLabel("Recent Routes")
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (isLoading) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = actionTealColor)
+                }
+            } else if (pastRoutes.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "No past routes yet",
+                        color = Color.Gray,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    pastRoutes.forEach { route ->
+                        val startName = route.startPoint
+                            ?: route.checkpoints?.firstOrNull()?.name ?: "?"
+                        val endName = route.endPoint
+                            ?: route.checkpoints?.lastOrNull()?.name ?: "?"
+                        val viaName = route.checkpoints?.getOrNull(1)?.name
+                        PastRouteCard(
+                            label = "$startName → $endName",
+                            via = viaName?.let { "via $it" },
+                            onMakeActive = { onMakeActive(route) },
+                            onMakeNext = { onMakeNext(route) }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+        }
+    }
+}
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text = text.uppercase(),
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Bold,
+        color = textThemeColor.copy(alpha = 0.45f),
+        letterSpacing = 1.sp
+    )
+}
+
+@Composable
+private fun PastRouteCard(
+    label: String,
+    via: String?,
+    onMakeActive: () -> Unit,
+    onMakeNext: () -> Unit
+) {
+    GlassCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Surface(
+                modifier = Modifier.size(36.dp),
+                shape = RoundedCornerShape(8.dp),
+                color = backgroundColor.copy(alpha = 0.6f)
+            ) {
+                Icon(
+                    Icons.Default.Route,
+                    contentDescription = null,
+                    tint = textThemeColor.copy(alpha = 0.5f),
+                    modifier = Modifier.padding(7.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(label, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                if (via != null) {
+                    Text(via, fontSize = 12.sp, color = Color.Gray)
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            OutlinedButton(
+                onClick = onMakeNext,
+                modifier = Modifier.weight(1f).height(40.dp),
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, actionTealColor.copy(alpha = 0.4f))
+            ) {
+                Icon(
+                    Icons.Default.Schedule,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = actionTealColor
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Set as Next", fontSize = 12.sp, color = actionTealColor)
+            }
+            Button(
+                onClick = onMakeActive,
+                modifier = Modifier.weight(1f).height(40.dp),
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
+            ) {
+                Icon(
+                    Icons.Default.PlayCircle,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Set Active", fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -2255,7 +2751,8 @@ fun CreateRouteStep3(
                     modifier = Modifier.fillMaxWidth().height(56.dp),
                     shape = RoundedCornerShape(16.dp)
                 ) {
-                    Text("Confirm & Create Route")
+                    Text(if (viewModel.templateRouteForUpdate != null) "Confirm & Update Route"
+                    else "Confirm & Create Route")
                 }
             }
             Spacer(modifier = Modifier.height(24.dp))
@@ -2572,4 +3069,75 @@ fun TimePickerRow(
             }
         }
     }
+}
+@Composable
+fun ReviewDialog(
+    onSubmit: (rating: Int, comment: String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var rating by remember { mutableIntStateOf(0) }
+    var comment by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color.White,
+        shape = RoundedCornerShape(24.dp),
+        title = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                Text("Rate the Customer", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = textThemeColor)
+                Text("How was this delivery experience?", fontSize = 13.sp, color = Color.Gray, textAlign = TextAlign.Center)
+            }
+        },
+        text = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Spacer(modifier = Modifier.height(8.dp))
+                // Star rating row
+                Row(horizontalArrangement = Arrangement.Center) {
+                    repeat(5) { index ->
+                        IconButton(onClick = { rating = index + 1 }) {
+                            Icon(
+                                imageVector = Icons.Default.Star,
+                                contentDescription = null,
+                                tint = if (index < rating) statusOrangeColor else Color.LightGray,
+                                modifier = Modifier.size(36.dp)
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = comment,
+                    onValueChange = { comment = it },
+                    label = { Text("Leave a comment (optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                    maxLines = 4,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = actionTealColor,
+                        focusedLabelColor = actionTealColor
+                    )
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { if (rating > 0) onSubmit(rating, comment) },
+                enabled = rating > 0,
+                colors = ButtonDefaults.buttonColors(containerColor = actionTealColor),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Submit Review", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                Text("Skip", color = Color.Gray)
+            }
+        }
+    )
 }

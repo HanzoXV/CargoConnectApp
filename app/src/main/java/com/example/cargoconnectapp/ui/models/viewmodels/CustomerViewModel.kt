@@ -83,6 +83,18 @@ class CustomerViewModel : ViewModel() {
     var radius by mutableDoubleStateOf(1.0)
     var shipmentType by mutableStateOf("Full")
 
+    // Review State
+    var canReviewData by mutableStateOf<CanReviewDto?>(null)
+    var reviewRating by mutableIntStateOf(0)
+    var reviewComments by mutableStateOf("")
+
+    var chatThreads by mutableStateOf<List<ChatThreadDto>>(emptyList())
+        private set
+    var selectedThreadId by mutableStateOf<Int?>(null)
+    var selectedThreadName by mutableStateOf<String>("")
+    var chatMessages by mutableStateOf<List<ChatMessageDto>>(emptyList())
+        private set
+
     fun clearAllData() {
         assignedShipmentId = null
         currentCustomerId = null
@@ -112,6 +124,9 @@ class CustomerViewModel : ViewModel() {
         errorMessage = null
         successMessage = null
         shipmentType = "Full"
+        canReviewData = null
+        reviewRating = 0
+        reviewComments = ""
     }
 
     // ── API Spot 1: Dashboard Load ───────────────────────────────────────────
@@ -252,6 +267,25 @@ class CustomerViewModel : ViewModel() {
         addedPackages.add(newPkg)
         clearPackageForm()
     }
+    fun cancelBooking(bookingId: Int) {
+        Log.d("CustomerViewModel", "cancelBooking fun is run.")
+        viewModelScope.launch {
+            isLoading = true
+            try {
+                val response = RetrofitClient.instance.cancelBooking(bookingId)
+                if (response.isSuccessful) {
+                    customerBookings.removeIf { it.id == bookingId }
+                    Log.d("CustomerViewModel", "Booking ID #${bookingId} canceled successfully")
+                } else {
+                    Log.e("CustomerViewModel", "Failed to cancel booking: ${response.errorBody()?.string()}")
+                }
+            } catch (e: Exception) {
+                Log.e("CustomerViewModel", "Exception fetching bookings", e)
+            } finally {
+                isLoading = false
+            }
+        }
+    }
 
     fun removePackage(pkg: Package) {
         Log.d("CustomerViewModel", "Removing package locally: ${pkg.name}")
@@ -380,13 +414,14 @@ class CustomerViewModel : ViewModel() {
         val driverId = truck.driverId ?: return
         val routeId = truck.routeId ?: return
         val fare = truck.price ?: return
+        val checkpointId = truck.checkpointId ?: return
 
         viewModelScope.launch {
             isLoading = true
             errorMessage = null
             successMessage = null
             try {
-                val response = RetrofitClient.instance.sendRequest(shipmentId, driverId, routeId, fare)
+                val response = RetrofitClient.instance.sendRequest(shipmentId, driverId, routeId, fare, checkpointId)
                 if (response.isSuccessful) {
                     successMessage = "Request sent to ${truck.driverName} successfully!"
                 } else {
@@ -396,6 +431,119 @@ class CustomerViewModel : ViewModel() {
                 errorMessage = e.message ?: "Connection error"
             } finally {
                 isLoading = false
+            }
+        }
+    }
+
+    // ── Review Logic ────────────────────────────────────────────────────────
+    fun checkCanReview(reviewerUserId: Int, bookingId: Int, onCanReview: () -> Unit, onCannotReview: (String) -> Unit) {
+        viewModelScope.launch {
+            isLoading = true
+            try {
+                val response = RetrofitClient.instance.canReview(reviewerUserId, bookingId)
+                if (response.isSuccessful) {
+                    val data = response.body()
+                    if (data?.canReview == true) {
+                        canReviewData = data
+                        reviewRating = 0
+                        reviewComments = ""
+                        onCanReview()
+                    } else {
+                        onCannotReview("You've already reviewed this driver")
+                    }
+                } else {
+                    onCannotReview("Failed to check review eligibility")
+                }
+            } catch (e: Exception) {
+                onCannotReview("Error: ${e.message}")
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    fun submitReview(fromUserId: Int, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        val data = canReviewData ?: return
+        viewModelScope.launch {
+            isLoading = true
+            try {
+                val response = RetrofitClient.instance.sendReview(
+                    fromUserId = fromUserId,
+                    toUserId = data.targetUserId,
+                    tripId = data.tripId,
+                    rating = reviewRating,
+                    comments = reviewComments
+                )
+                if (response.isSuccessful) {
+                    successMessage = "Review submitted!"
+                    onSuccess()
+                } else {
+                    onError(response.errorBody()?.string() ?: "Submission failed")
+                }
+            } catch (e: Exception) {
+                onError("Error: ${e.message}")
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+    fun fetchChatList(userId: Int) {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.instance.getChatList(userId)
+                if (response.isSuccessful) {
+                    chatThreads = response.body() ?: emptyList()
+                }
+            } catch (e: Exception) {
+                Log.e("CustomerViewModel", "fetchChatList failed", e)
+            }
+        }
+    }
+
+    fun fetchChatHistory(threadId: Int, userId: Int) {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.instance.getChatHistory(threadId, userId)
+                if (response.isSuccessful) {
+                    chatMessages = response.body() ?: emptyList()
+                }
+            } catch (e: Exception) {
+                Log.e("CustomerViewModel", "fetchChatHistory failed", e)
+            }
+        }
+    }
+    fun getOrCreateThread(
+        customerUserId: Int,
+        booking: CustomerBookingDto,
+        onSuccess: (threadId: Int, otherName: String) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.instance.getOrCreateThread(
+                    customerUserId = customerUserId,
+                    driverUserId = booking.shipment_id?: return@launch  // need this field
+                )
+                if (response.isSuccessful) {
+                    val threadId = response.body()?.threadId ?: return@launch
+                    selectedThreadId = threadId
+                    selectedThreadName = booking.driver_name ?: "Driver"
+                    onSuccess(threadId, booking.driver_name ?: "Driver")
+                }
+            } catch (e: Exception) {
+                Log.e("CustomerViewModel", "getOrCreateThread failed", e)
+            }
+        }
+    }
+    fun sendMessage(threadId: Int, senderUserId: Int, messageText: String, onComplete: () -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.instance.sendMessage(threadId, senderUserId, messageText)
+                if (response.isSuccessful) {
+                    fetchChatHistory(threadId, senderUserId)
+                    onComplete()
+                }
+            } catch (e: Exception) {
+                Log.e("CustomerViewModel", "sendMessage failed", e)
             }
         }
     }
