@@ -52,6 +52,7 @@ import org.osmdroid.util.GeoPoint
 import java.time.LocalDate
 import java.time.YearMonth
 
+@Preview
 @Composable
 fun SplashScreen(onNavigateToLogin: () -> Unit) {
     val backgroundGradient = remember {

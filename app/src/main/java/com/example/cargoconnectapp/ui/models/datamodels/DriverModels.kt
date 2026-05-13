@@ -196,6 +196,17 @@ data class AvailabilityDto(
     @SerializedName("DepartureDate") val departureDate: String? = null,
     @SerializedName("ArrivalDate") val arrivalDate: String? = null,
     @SerializedName("CheckpointID") val checkpointId: Int? = null,
+    @SerializedName("containsFragile") val containsFragile: Boolean = false,
+    @SerializedName("containsKeepUpright") val containsKeepUpright: Boolean = false,
+    @SerializedName("containsLiquid") val containsLiquid: Boolean = false,
+    @SerializedName("containsFlammable") val containsFlammable: Boolean = false,
+    @SerializedName("prefType") val prefType: String = "Shared",
+)
+data class DriverLocationRequestDto (
+    @SerializedName("driver_id") val driverId: Int,
+    @SerializedName("latitude") val latitude: Double,
+    @SerializedName("longitude") val longitude: Double,
+    @SerializedName("updated_at") val updatedAt: String
 )
 
 data class DeclineResponseDto(

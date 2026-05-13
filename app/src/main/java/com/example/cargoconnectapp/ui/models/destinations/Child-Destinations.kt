@@ -16,7 +16,9 @@ enum class DriverDashboardPage {
     TripInfo,
     TruckInfo,
     AddDelay,
-    ConfirmDelivery
+    ConfirmDelivery,
+
+    RouteDetails
 }
 
 @Serializable
@@ -92,5 +94,6 @@ enum class CustomerProfilePage {
     Main,
     YourInformation,
     EditInformation,
-    AllReviews
+    AllReviews,
+    RequestHistory
 }

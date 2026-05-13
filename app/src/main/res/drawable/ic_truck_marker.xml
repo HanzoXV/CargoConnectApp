@@ -1,0 +1,46 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="80dp"
+    android:viewportWidth="48"
+    android:viewportHeight="80">
+
+    <!-- Truck Chassis/Base (Deep Green) -->
+    <path
+        android:fillColor="#1B5E20"
+        android:pathData="M10,10 H38 V75 Q38,78 35,78 H13 Q10,78 10,75 Z" />
+
+    <!-- The 'Taj' (Decorative Front Crown) -->
+    <path
+        android:fillColor="#FFD600"
+        android:pathData="M8,8 Q24,2 40,8 L42,20 L6,20 Z" />
+
+    <!-- Windshield (Glass Effect) -->
+    <path
+        android:fillColor="#B3E5FC"
+        android:pathData="M12,14 H36 V19 H12 Z" />
+
+    <!-- Side Mirrors (Visible from top) -->
+    <path
+        android:fillColor="#212121"
+        android:pathData="M5,14 H10 V18 H5 Z M38,14 H43 V18 H38 Z" />
+
+    <!-- Cargo Bed Decorative Art (Pink/Red accents) -->
+    <path
+        android:fillColor="#D81B60"
+        android:pathData="M14,35 L20,40 L14,45 Z M34,35 L28,40 L34,45 Z" />
+
+    <!-- Center Floral Mandala (Orange) -->
+    <path
+        android:fillColor="#FF6D00"
+        android:pathData="M24,48 A4,4 0 1,1 24,56 A4,4 0 1,1 24,48" />
+
+    <!-- Back Decorative Strip -->
+    <path
+        android:fillColor="#FFD600"
+        android:pathData="M10,70 H38 V72 H10 Z" />
+
+    <!-- Tail Lights -->
+    <path
+        android:fillColor="#F44336"
+        android:pathData="M12,76 H18 V78 H12 Z M30,76 H36 V78 H30 Z" />
+</vector>

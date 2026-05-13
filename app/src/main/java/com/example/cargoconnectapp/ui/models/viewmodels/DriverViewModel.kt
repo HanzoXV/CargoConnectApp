@@ -1,18 +1,23 @@
 package com.example.cargoconnectapp.ui.models.viewmodels
 
+import android.os.Build
 import android.util.Log
+import androidx.annotation.RequiresApi
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.cargoconnectapp.data.RetrofitClient
 import com.example.cargoconnectapp.ui.models.datamodels.*
+import com.example.cargoconnectapp.ui.models.datamodels.CheckpointShipmentsResponse
 import com.example.cargoconnectapp.ui.navigation.screens.ShipmentRequest
 import com.example.cargoconnectapp.ui.models.helpermodels.Dimensions
+import com.example.cargoconnectapp.ui.navigation.screens.ShipmentDetail
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import org.osmdroid.util.GeoPoint
@@ -25,6 +30,12 @@ enum class RouteTarget { ACTIVE, NEXT }
 class DriverViewModel : ViewModel() {
 
     // ── State ─────────────────────────────────────────────────────────────────
+
+    var currentLocation by mutableStateOf(0.0 to 0.0)
+
+    var pendingTruckAnimation: Pair<Int, Int>? = null
+
+    var routeCustomerDetail by mutableStateOf<CheckpointShipmentsResponse?>(null)
 
     var templateRouteForUpdate by mutableStateOf<RouteData?>(null)
 
@@ -119,7 +130,7 @@ class DriverViewModel : ViewModel() {
 
     // ── Route Planning State (Temporary) ──────────────────────────────────────
     
-    val plannedPoints = mutableStateListOf<GeoPoint>()
+    var plannedPoints = mutableStateListOf<GeoPoint>()
     var plannedDepartureDate by mutableStateOf<LocalDateTime?>(null)
     var plannedArrivalDate by mutableStateOf<LocalDateTime?>(null)
 
@@ -218,6 +229,26 @@ class DriverViewModel : ViewModel() {
                 errorMessage = e.message
             } finally {
                 isLoading = false
+            }
+        }
+    }
+    @RequiresApi(Build.VERSION_CODES.O)
+    fun updateDriverLocation(driverId: Int, latitude: Double, longitude: Double) {
+        val request = DriverLocationRequestDto(
+            driverId = driverId,
+            latitude = latitude,
+            longitude = longitude,
+            updatedAt = LocalDateTime.now().toString()
+        )
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.instance.updateDriverLocation(request)
+                if (response.isSuccessful) {
+                    Log.e("LOCATION UPDATE", response.body().toString())
+                }
+            }
+            catch(e: Exception) {
+                Log.e("LOCATION UPDATE FAILED", "FAIL. ${e.message}")
             }
         }
     }
@@ -378,6 +409,26 @@ class DriverViewModel : ViewModel() {
             }
         }
     }
+        fun reFillPlannedPoints() {
+            val points = selectedTemplateRoute?.checkpoints?.mapNotNull { c ->
+                val lat = c.latitude
+                val lon = c.longitude
+
+                if (lat != null && lon != null) {
+                    GeoPoint(lat, lon)
+                } else {
+                    null
+                }
+            } ?: emptyList()
+
+
+            Log.e("REFILL", "reFillPlannedPoints called. Checkpoints: ${selectedTemplateRoute?.checkpoints?.size}, Valid points: ${points.size}")
+
+            plannedPoints.clear()
+            plannedPoints.addAll(points)
+
+            Log.e("REFILL", "plannedPoints after fill: ${plannedPoints.size}")
+        }
 
     fun saveRoute(request: CreateRouteRequest, driverId: Int, onComplete: () -> Unit = {}) {
         val target = routeActivationTarget // Snapshot BEFORE any async work
@@ -707,6 +758,26 @@ class DriverViewModel : ViewModel() {
                     RetrofitClient.instance.getShipmentsAtCheckpoint(checkpointId, driverId)
                 if (response.isSuccessful) {
                     checkpointShipments = response.body()
+                    onComplete()
+                } else {
+                    errorMessage = response.errorBody()?.string()
+                }
+            } catch (e: Exception) {
+                errorMessage = e.message
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+    fun routeShipmentsAtCheckpoint(checkpointId: Int, driverId: Int, onComplete: () -> Unit = {}) {
+        viewModelScope.launch {
+            isLoading = true
+            errorMessage = null
+            try {
+                val response =
+                    RetrofitClient.instance.getShipmentsAtCheckpoint(checkpointId, driverId)
+                if (response.isSuccessful) {
+                    routeCustomerDetail = response.body()
                     onComplete()
                 } else {
                     errorMessage = response.errorBody()?.string()

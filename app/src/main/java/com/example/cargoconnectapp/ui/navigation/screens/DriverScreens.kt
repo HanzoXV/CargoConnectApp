@@ -1,6 +1,8 @@
 package com.example.cargoconnectapp.ui.navigation.screens
 
 import android.os.Build
+import android.util.Log
+import android.widget.RatingBar
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -56,6 +58,7 @@ import com.example.cargoconnectapp.ui.models.datamodels.ReviewDto
 import com.example.cargoconnectapp.ui.models.datamodels.RouteCheckpointRequest
 import com.example.cargoconnectapp.ui.models.datamodels.RouteData
 import com.example.cargoconnectapp.ui.models.helpermodels.PackageColorPool
+import com.example.cargoconnectapp.ui.models.map.TruckAnimationEvent
 import com.example.cargoconnectapp.ui.models.viewmodels.UserSessionViewModel
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -240,6 +243,7 @@ fun DriverDashboardScreen(
     onProfileClick: () -> Unit = {},
     onDelayClick: (Int) -> Unit = {},
     onReachedClick: (Int) -> Unit = {},
+    onDetailsClick: (Int) -> Unit = {},
     currentTab: DriverDestination = DriverDashboard()
 ) {
     val backgroundGradient = Brush.verticalGradient(
@@ -251,6 +255,9 @@ fun DriverDashboardScreen(
     val reachedCount = checkpoints.count { it.reached ?: false }
     var selectedTab by remember { mutableStateOf("Trip Info") }
     val calculatedDistances = remember { mutableStateListOf<Double>() }
+    // Tracking mode state
+    var truckAtIndex by remember { mutableStateOf(-1) }
+    var truckAnimationEvent by remember { mutableStateOf<TruckAnimationEvent?>(null) }
 
     LaunchedEffect(selectedTab) {
         if (selectedTab == "Truck Info") {
@@ -317,7 +324,34 @@ fun DriverDashboardScreen(
             )
 
             Spacer(modifier = Modifier.height(24.dp))
+            val geoPoints = checkpoints.mapNotNull { cp ->
+                if (cp.latitude != null && cp.longitude != null) GeoPoint(cp.latitude, cp.longitude) else null
+            }
 
+            LaunchedEffect(geoPoints) {
+                val pending = driverViewModel.pendingTruckAnimation
+                if (pending != null && geoPoints.isNotEmpty()) {
+                    val (fromIdx, toIdx) = pending
+                    val fromPoint = geoPoints.getOrNull(fromIdx)
+                    val toPoint   = geoPoints.getOrNull(toIdx)
+
+                    if (fromPoint != null && toPoint != null) {
+                        if (fromIdx == toIdx) {
+                            // First checkpoint: just place truck, no animation
+                            truckAtIndex = toIdx
+                        } else {
+                            truckAtIndex = toIdx
+                            truckAnimationEvent = TruckAnimationEvent(
+                                from       = fromPoint,
+                                to         = toPoint,
+                                durationMs = 15_000L
+                            )
+                        }
+                    }
+
+                    driverViewModel.pendingTruckAnimation = null
+                }
+            }
             AnimatedContent(
                 targetState = selectedTab,
                 transitionSpec = {
@@ -353,19 +387,23 @@ fun DriverDashboardScreen(
                             Spacer(modifier = Modifier.height(16.dp))
 
                             Box(modifier = Modifier.height(200.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)))   {
-                                val geoPoints = checkpoints.mapNotNull { cp ->
-                                    if (cp.latitude != null && cp.longitude != null) GeoPoint(cp.latitude, cp.longitude) else null
-                                }
+
                                 if (geoPoints.isEmpty()) {
                                     Box(modifier = Modifier.fillMaxSize().background(Color.Gray.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
                                         Text("No active route found", color = Color.Gray)
                                     }
                                 } else {
                                     OSMContainer(
-                                        points = geoPoints,
+                                        points               = geoPoints,
                                         onDistancesCalculated = { calculatedDistances.clear(); calculatedDistances.addAll(it) },
-                                        onMapClick = {}, onMapLongClick = {},
-                                        isNavigation = true
+                                        onMapClick           = {},
+                                        onMapLongClick       = {},
+                                        isNavigation         = false,          // turn off the old navigation mode
+                                        isTrackingMode       = true,           // ← NEW
+                                        truckAtIndex         = truckAtIndex,   // ← NEW
+                                        truckAnimationEvent  = truckAnimationEvent,  // ← NEW,
+                                        driverViewModel = driverViewModel,
+                                        driverId = driverId
                                     )
                                 }
                             }
@@ -387,7 +425,12 @@ fun DriverDashboardScreen(
                                     isLast = index == checkpoints.lastIndex,
                                     isEnabled = index == firstUnreachedIndex,
                                     onDelay = { onDelayClick(index) },
-                                    onReached = { onReachedClick(index) }
+                                    onReached = {
+                                        onReachedClick(index)
+                                        },
+                                    onDetails = {
+                                        onDetailsClick(index)
+                                    }
                                 )
                             }
                         }
@@ -481,7 +524,8 @@ fun EnhancedRouteItem(
     isLast: Boolean,
     isEnabled: Boolean,
     onDelay: () -> Unit,
-    onReached: () -> Unit
+    onReached: () -> Unit,
+    onDetails: () -> Unit
 ) {
     Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -537,6 +581,20 @@ fun EnhancedRouteItem(
                         contentPadding = PaddingValues(horizontal = 12.dp)
                     ) {
                         Text(if (isFirst) "Start" else "Reached", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Button(
+                        onClick = onDetails,
+                        enabled = true,
+                        modifier = Modifier.height(32.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = actionTealColor,
+                            disabledContainerColor = Color.Gray.copy(alpha = 0.1f),
+                            disabledContentColor = Color.Gray.copy(alpha = 0.3f)
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp)
+                    ) {
+                        Text("Details", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -1239,9 +1297,18 @@ fun CheckpointShipmentsScreen(
 
             Box(modifier = Modifier.weight(1f)) {
                 if (selectedSubTab.startsWith("Load")) {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
                         if (data.to_load.shipments.isEmpty()) {
-                            item { Text("No pickups at this stop.", color = Color.Gray, fontSize = 13.sp) }
+                            item {
+                                Text(
+                                    "No pickups at this stop.",
+                                    color = Color.Gray,
+                                    fontSize = 13.sp
+                                )
+                            }
                         } else {
                             itemsIndexed(data.to_load.shipments) { _, shipment ->
                                 ShipmentActionCard(
@@ -1256,9 +1323,18 @@ fun CheckpointShipmentsScreen(
                         }
                     }
                 } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
                         if (data.to_drop.shipments.isEmpty()) {
-                            item { Text("No drop-offs at this stop.", color = Color.Gray, fontSize = 13.sp) }
+                            item {
+                                Text(
+                                    "No drop-offs at this stop.",
+                                    color = Color.Gray,
+                                    fontSize = 13.sp
+                                )
+                            }
                         } else {
                             itemsIndexed(data.to_drop.shipments) { _, shipment ->
                                 ShipmentActionCard(
@@ -1274,6 +1350,7 @@ fun CheckpointShipmentsScreen(
                     }
                 }
             }
+
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -1524,10 +1601,10 @@ fun ShipmentDetailedCard(
 // ─────────────────────────────────────────────
 // CUSTOMER SHIPMENTS DETAIL SCREEN (Overhauled)
 // ─────────────────────────────────────────────
-
+@Preview
 @Composable
 fun CustomerShipmentsDetailScreen(
-    shipments: List<ShipmentDetail> = emptyList(),
+    data: CheckpointShipmentsResponse,
     onBack: () -> Unit = {},
     onHomeClick: () -> Unit = {},
     onOrdersClick: () -> Unit = {},
@@ -1565,38 +1642,70 @@ fun CustomerShipmentsDetailScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            if (shipments.isEmpty()) {
+            if (data.to_load.shipments.isEmpty() && data.to_drop.shipments.isEmpty()) {
                 GlassCard {
-                    Text("No shipment data available.", color = Color.Gray, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                    Text(
+                        "You have no shipments booked at this checkpoint",
+                        color = Color.Gray,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             } else {
-                shipments.forEach { shipment ->
-                    GlassCard(modifier = Modifier.padding(bottom = 16.dp)) {
-                        Text(shipment.title, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = actionTealColor)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("Weight: ${shipment.totalWeight}", fontSize = 14.sp, color = Color.Gray)
-                        Text("Fare: ${shipment.totalFare}", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-
-                        Spacer(modifier = Modifier.height(16.dp))
-                        HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f))
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        shipment.packages.forEachIndexed { index, pkg ->
-                            Row(verticalAlignment = Alignment.Top, modifier = Modifier.padding(vertical = 4.dp)) {
-                                Surface(modifier = Modifier.size(24.dp), shape = CircleShape, color = actionTealColor.copy(alpha = 0.1f)) {
-                                    Text("${index + 1}", modifier = Modifier.fillMaxSize(), textAlign = TextAlign.Center, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = actionTealColor)
-                                }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text(pkg.name, fontWeight = FontWeight.SemiBold)
-                                    Text("Qty: ${pkg.quantity} • Tag: ${pkg.tagId}", fontSize = 12.sp, color = Color.Gray)
-                                }
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        if (data.to_load.shipments.isEmpty()) {
+                            item {
+                                Text(
+                                    "No pickups at this stop.",
+                                    color = Color.Gray,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        } else {
+                            itemsIndexed(data.to_load.shipments) { _, shipment ->
+                                ShipmentActionCard(
+                                    shipment = shipment,
+                                    color = statusOrangeColor,
+                                    label = "Pickup From",
+                                    actionLabel = if (shipment.status == "In-Transit") "✓ Picked Up" else "Pickup",
+                                    actionEnabled = shipment.status == "Assigned",
+                                    onAction = { }
+                                )
                             }
                         }
                     }
-                }
+                    HorizontalDivider(thickness = 4.dp)
+
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        if (data.to_drop.shipments.isEmpty()) {
+                            item {
+                                Text(
+                                    "No drop-offs at this stop.",
+                                    color = Color.Gray,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        } else {
+                            itemsIndexed(data.to_drop.shipments) { _, shipment ->
+                                ShipmentActionCard(
+                                    shipment = shipment,
+                                    color = statusBlueColor,
+                                    label = "Deliver To",
+                                    actionLabel = if (shipment.status == "Completed") "✓ Delivered" else "Deliver",
+                                    actionEnabled = shipment.status == "In-Transit",
+                                    onAction = { }
+                                )
+                            }
+                        }
+                    }
+                Spacer(modifier = Modifier.height(32.dp))
             }
-            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }
@@ -1605,572 +1714,758 @@ fun CustomerShipmentsDetailScreen(
 // ACTIVITY & PROFILE (Visual Tweaks)
 // ─────────────────────────────────────────────
 
-@Composable
-fun ActivityScreen(
-    chats: List<ChatContact> = emptyList(),
-    notifications: List<NotificationDto> = emptyList(),
-    onChatClick: (ChatContact) -> Unit = {},
-    onHomeClick: () -> Unit = {},
-    onOrdersClick: () -> Unit = {},
-    onHistoryClick: () -> Unit = {},
-    onChatNavClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {},
-    currentTab: DriverDestination = DriverDashboard()
-) {
-    var selectedTab by remember { mutableStateOf("Chats") }
-
-    Scaffold(
-        bottomBar = {
-            DashboardBottomBar(
-                currentTab = currentTab,
-                onHomeClick = onHomeClick,
-                onOrdersClick = onOrdersClick,
-                onHistoryClick = onHistoryClick,
-                onChatClick = onChatNavClick,
-                onProfileClick = onProfileClick
-            )
-        },
-        containerColor = backgroundColor
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 24.dp)
-        ) {
-            Spacer(modifier = Modifier.height(32.dp))
-            Text("Activity", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = textThemeColor)
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            InteractiveTabRow(
-                tabs = listOf("Chats", "Notifications"),
-                selectedTab = selectedTab,
-                onTabSelected = { selectedTab = it }
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (selectedTab == "Chats") {
-                    items(chats.size) { index ->
-                        EnhancedChatListItem(chats[index], onClick = { onChatClick(chats[index]) })
-                    }
-                } else {
-                    items(notifications.size) { index ->
-                        EnhancedNotificationCard(notifications[index])
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun EnhancedChatListItem(chat: ChatContact, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        color = Color.Transparent
+    @Composable
+    fun ActivityScreen(
+        chats: List<ChatContact> = emptyList(),
+        notifications: List<NotificationDto> = emptyList(),
+        onChatClick: (ChatContact) -> Unit = {},
+        onHomeClick: () -> Unit = {},
+        onOrdersClick: () -> Unit = {},
+        onHistoryClick: () -> Unit = {},
+        onChatNavClick: () -> Unit = {},
+        onProfileClick: () -> Unit = {},
+        currentTab: DriverDestination = DriverDashboard()
     ) {
-        Row(
-            modifier = Modifier.padding(vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box {
-                Surface(modifier = Modifier.size(56.dp), shape = CircleShape, color = Color.White) {
-                    Icon(Icons.Default.Person, null, modifier = Modifier.padding(12.dp), tint = Color.LightGray)
-                }
-                if (chat.hasUnread) {
-                    Box(modifier = Modifier.size(12.dp).clip(CircleShape).background(statusRedColor).border(2.dp, backgroundColor, CircleShape).align(Alignment.TopEnd))
-                }
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(chat.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text(chat.time, fontSize = 12.sp, color = Color.Gray)
-                }
-                Text(chat.lastMessage, fontSize = 14.sp, color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
-    }
-}
+        var selectedTab by remember { mutableStateOf("Chats") }
 
-@Composable
-fun EnhancedNotificationCard(notif: NotificationDto) {
-    GlassCard(modifier = Modifier.padding(vertical = 4.dp)) {
-        Row(verticalAlignment = Alignment.Top) {
-            Surface(modifier = Modifier.size(40.dp), shape = CircleShape, color = actionTealColor.copy(alpha = 0.1f)) {
-                Icon(Icons.Default.NotificationsActive, null, modifier = Modifier.padding(8.dp), tint = actionTealColor)
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(notif.message, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                Text(notif.created_at, fontSize = 11.sp, color = Color.Gray, modifier = Modifier.padding(top = 4.dp))
-            }
-        }
-    }
-}
-
-@Composable
-fun ProfileScreen(
-    fullName: String = "",
-    rating: Float = 4.8f,
-    numberOfReviews: Int = 0,
-    isSwitchedToCustomer: Boolean = false,
-    onYourInformationClick: () -> Unit = {},
-    onActivateRouteClick: () -> Unit = {},
-    onLogoutClick: () -> Unit = {},
-    onReviewsClick: () -> Unit = {},
-    onSwitchRoleToggle: (Boolean) -> Unit = {},
-    onHomeClick: () -> Unit = {},
-    onOrdersClick: () -> Unit = {},
-    onHistoryClick: () -> Unit = {},
-    onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {},
-    currentTab: DriverDestination = DriverDashboard(),
-    session: UserSessionViewModel
-) {
-    Scaffold(
-        bottomBar = {
-            DashboardBottomBar(
-                currentTab = currentTab,
-                onHomeClick = onHomeClick,
-                onOrdersClick = onOrdersClick,
-                onHistoryClick = onHistoryClick,
-                onChatClick = onChatClick,
-                onProfileClick = onProfileClick
-            )
-        },
-        containerColor = backgroundColor
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .verticalScroll(rememberScrollState()),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Header Profile
-            Box(
+        Scaffold(
+            bottomBar = {
+                DashboardBottomBar(
+                    currentTab = currentTab,
+                    onHomeClick = onHomeClick,
+                    onOrdersClick = onOrdersClick,
+                    onHistoryClick = onHistoryClick,
+                    onChatClick = onChatNavClick,
+                    onProfileClick = onProfileClick
+                )
+            },
+            containerColor = backgroundColor
+        ) { innerPadding ->
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(280.dp)
-                    .drawBehind {
-                        drawCircle(
-                            brush = Brush.radialGradient(listOf(actionTealColor.copy(alpha = 0.2f), Color.Transparent)),
-                            radius = size.width,
-                            center = Offset(size.width / 2, 0f)
-                        )
-                    },
-                contentAlignment = Alignment.Center
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(horizontal = 24.dp)
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(modifier = Modifier.size(120.dp)) {
-                        Surface(
-                            modifier = Modifier.fillMaxSize().shadow(12.dp, CircleShape),
-                            shape = CircleShape,
-                            color = Color.White
-                        ) {
-                            if (session.userProfileImageUrl != null) {
-                                AsyncImage(model = session.userProfileImageUrl, contentDescription = null, contentScale = ContentScale.Crop)
-                            } else {
-                                Icon(Icons.Default.Person, null, modifier = Modifier.padding(24.dp), tint = actionTealColor)
-                            }
-                        }
-                        Surface(
-                            modifier = Modifier.size(36.dp).align(Alignment.BottomEnd),
-                            shape = CircleShape,
-                            color = actionTealColor,
-                            shadowElevation = 4.dp
-                        ) {
-                            Icon(Icons.Default.Edit, null, modifier = Modifier.padding(8.dp), tint = Color.White)
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(fullName, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Star, null, tint = statusOrangeColor, modifier = Modifier.size(16.dp))
-                        Text(" $rating Driver Rating ($numberOfReviews)", fontSize = 14.sp, color = Color.Gray, fontWeight = FontWeight.Medium)
-                    }
-                }
-            }
-
-            // Menu Items
-            Column(modifier = Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                ProfileMenuCard("Personal Information", Icons.Default.Badge, onYourInformationClick)
-                ProfileMenuCard("Route Management", Icons.Default.Route, onActivateRouteClick)
-                ProfileMenuCard("Settings & Security", Icons.Default.Settings, {})
-                ProfileMenuCard("Reviews", Icons.Default.Star, onReviewsClick)
+                Spacer(modifier = Modifier.height(32.dp))
+                Text(
+                    "Activity",
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = textThemeColor
+                )
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Role Switch Card
-                GlassCard {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.SwapHoriz, null, tint = statusBlueColor)
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Text("Switch to Customer Mode", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
-                        Switch(checked = isSwitchedToCustomer, onCheckedChange = { onSwitchRoleToggle(it) })
+                InteractiveTabRow(
+                    tabs = listOf("Chats", "Notifications"),
+                    selectedTab = selectedTab,
+                    onTabSelected = { selectedTab = it }
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (selectedTab == "Chats") {
+                        items(chats.size) { index ->
+                            EnhancedChatListItem(
+                                chats[index],
+                                onClick = { onChatClick(chats[index]) })
+                        }
+                    } else {
+                        items(notifications.size) { index ->
+                            EnhancedNotificationCard(notifications[index])
+                        }
                     }
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun EnhancedChatListItem(chat: ChatContact, onClick: () -> Unit) {
+        Surface(
+            onClick = onClick,
+            modifier = Modifier.fillMaxWidth(),
+            color = Color.Transparent
+        ) {
+            Row(
+                modifier = Modifier.padding(vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box {
+                    Surface(
+                        modifier = Modifier.size(56.dp),
+                        shape = CircleShape,
+                        color = Color.White
+                    ) {
+                        Icon(
+                            Icons.Default.Person,
+                            null,
+                            modifier = Modifier.padding(12.dp),
+                            tint = Color.LightGray
+                        )
+                    }
+                    if (chat.hasUnread) {
+                        Box(
+                            modifier = Modifier.size(12.dp).clip(CircleShape)
+                                .background(statusRedColor)
+                                .border(2.dp, backgroundColor, CircleShape).align(Alignment.TopEnd)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(chat.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text(chat.time, fontSize = 12.sp, color = Color.Gray)
+                    }
+                    Text(
+                        chat.lastMessage,
+                        fontSize = 14.sp,
+                        color = Color.Gray,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun EnhancedNotificationCard(notif: NotificationDto) {
+        GlassCard(modifier = Modifier.padding(vertical = 4.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
+                Surface(
+                    modifier = Modifier.size(40.dp),
+                    shape = CircleShape,
+                    color = actionTealColor.copy(alpha = 0.1f)
+                ) {
+                    Icon(
+                        Icons.Default.NotificationsActive,
+                        null,
+                        modifier = Modifier.padding(8.dp),
+                        tint = actionTealColor
+                    )
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(notif.message, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    Text(
+                        notif.created_at,
+                        fontSize = 11.sp,
+                        color = Color.Gray,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun ProfileScreen(
+        fullName: String = "",
+        rating: Float = 4.8f,
+        numberOfReviews: Int = 0,
+        isSwitchedToCustomer: Boolean = false,
+        onYourInformationClick: () -> Unit = {},
+        onActivateRouteClick: () -> Unit = {},
+        onLogoutClick: () -> Unit = {},
+        onReviewsClick: () -> Unit = {},
+        onSwitchRoleToggle: (Boolean) -> Unit = {},
+        onHomeClick: () -> Unit = {},
+        onOrdersClick: () -> Unit = {},
+        onHistoryClick: () -> Unit = {},
+        onChatClick: () -> Unit = {},
+        onProfileClick: () -> Unit = {},
+        currentTab: DriverDestination = DriverDashboard(),
+        session: UserSessionViewModel
+    ) {
+        Scaffold(
+            bottomBar = {
+                DashboardBottomBar(
+                    currentTab = currentTab,
+                    onHomeClick = onHomeClick,
+                    onOrdersClick = onOrdersClick,
+                    onHistoryClick = onHistoryClick,
+                    onChatClick = onChatClick,
+                    onProfileClick = onProfileClick
+                )
+            },
+            containerColor = backgroundColor
+        ) { innerPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Header Profile
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(280.dp)
+                        .drawBehind {
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    listOf(
+                                        actionTealColor.copy(alpha = 0.2f),
+                                        Color.Transparent
+                                    )
+                                ),
+                                radius = size.width,
+                                center = Offset(size.width / 2, 0f)
+                            )
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(modifier = Modifier.size(120.dp)) {
+                            Surface(
+                                modifier = Modifier.fillMaxSize().shadow(12.dp, CircleShape),
+                                shape = CircleShape,
+                                color = Color.White
+                            ) {
+                                if (session.userProfileImageUrl != null) {
+                                    AsyncImage(
+                                        model = session.userProfileImageUrl,
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Icon(
+                                        Icons.Default.Person,
+                                        null,
+                                        modifier = Modifier.padding(24.dp),
+                                        tint = actionTealColor
+                                    )
+                                }
+                            }
+                            Surface(
+                                modifier = Modifier.size(36.dp).align(Alignment.BottomEnd),
+                                shape = CircleShape,
+                                color = actionTealColor,
+                                shadowElevation = 4.dp
+                            ) {
+                                Icon(
+                                    Icons.Default.Edit,
+                                    null,
+                                    modifier = Modifier.padding(8.dp),
+                                    tint = Color.White
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(fullName, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Star,
+                                null,
+                                tint = statusOrangeColor,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                " $rating Driver Rating ($numberOfReviews)",
+                                fontSize = 14.sp,
+                                color = Color.Gray,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+
+                // Menu Items
+                Column(
+                    modifier = Modifier.padding(horizontal = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    ProfileMenuCard(
+                        "Personal Information",
+                        Icons.Default.Badge,
+                        onYourInformationClick
+                    )
+                    ProfileMenuCard("Route Management", Icons.Default.Route, onActivateRouteClick)
+                    ProfileMenuCard("Settings & Security", Icons.Default.Settings, {})
+                    ProfileMenuCard("Reviews", Icons.Default.Star, onReviewsClick)
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    // Role Switch Card
+                    GlassCard {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.SwapHoriz, null, tint = statusBlueColor)
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text(
+                                "Switch to Customer Mode",
+                                modifier = Modifier.weight(1f),
+                                fontWeight = FontWeight.Bold
+                            )
+                            Switch(
+                                checked = isSwitchedToCustomer,
+                                onCheckedChange = { onSwitchRoleToggle(it) })
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Button(
+                        onClick = onLogoutClick,
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = statusRedColor.copy(
+                                alpha = 0.1f
+                            ), contentColor = statusRedColor
+                        ),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Icon(Icons.Default.Logout, null)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text("Logout Session", fontWeight = FontWeight.Bold)
+                    }
+                }
+                Spacer(modifier = Modifier.height(32.dp))
+            }
+        }
+    }
+
+    @Composable
+    fun AllReviewsScreen(
+        reviews: List<ReviewDto>,
+        averageRating: Double,
+        totalReviews: Int,
+        isLoading: Boolean,
+        onBack: () -> Unit,
+        currentTab: DriverDestination,
+        onHomeClick: () -> Unit,
+        onOrdersClick: () -> Unit,
+        onHistoryClick: () -> Unit,
+        onChatClick: () -> Unit,
+        onProfileClick: () -> Unit
+    ) {
+        Scaffold(
+            bottomBar = {
+                DashboardBottomBar(
+                    currentTab = currentTab,
+                    onHomeClick = onHomeClick,
+                    onOrdersClick = onOrdersClick,
+                    onHistoryClick = onHistoryClick,
+                    onChatClick = onChatClick,
+                    onProfileClick = onProfileClick
+                )
+            },
+            containerColor = backgroundColor
+        ) { innerPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
+                // Header
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.Default.ArrowBack,
+                            contentDescription = "Back",
+                            tint = textThemeColor
+                        )
+                    }
+                    Text(
+                        "Ratings & Feedback",
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = textThemeColor
+                    )
+                }
+
+                if (isLoading) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = actionTealColor)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        // Summary Card (Matches RatingResponse fields)
+                        item {
+                            GlassCard {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = "%.1f".format(averageRating),
+                                            fontSize = 42.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = actionTealColor
+                                        )
+                                        Text(
+                                            "Average Rating",
+                                            fontSize = 12.sp,
+                                            color = Color.Gray
+                                        )
+                                    }
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        RatingBar(rating = averageRating.toFloat())
+                                        Text(
+                                            "$totalReviews total reviews",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = textThemeColor
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if (reviews.isEmpty()) {
+                            item {
+                                Box(
+                                    modifier = Modifier.fillParentMaxHeight(0.6f).fillMaxWidth(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("No feedback received yet", color = Color.Gray)
+                                }
+                            }
+                        } else {
+                            items(reviews) { review ->
+                                ReviewItem(review)
+                            }
+                        }
+
+                        item { Spacer(modifier = Modifier.height(24.dp)) }
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun ReviewItem(review: ReviewDto) {
+        GlassCard {
+            Column(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Column {
+                        Text(
+                            // Uses reviewerName from your DTO
+                            text = review.reviewerName ?: "Anonymous User",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            color = textThemeColor
+                        )
+                        // Uses createdAt from your DTO
+                        Text(
+                            text = review.createdAt?.split("T")?.firstOrNull() ?: "",
+                            fontSize = 11.sp,
+                            color = Color.Gray
+                        )
+                    }
+                    // Uses rating from your DTO
+                    RatingBar(rating = review.rating.toFloat(), size = 12.dp)
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Button(
-                    onClick = onLogoutClick,
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = statusRedColor.copy(alpha = 0.1f), contentColor = statusRedColor),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Icon(Icons.Default.Logout, null)
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text("Logout Session", fontWeight = FontWeight.Bold)
-                }
-            }
-            Spacer(modifier = Modifier.height(32.dp))
-        }
-    }
-}
-@Composable
-fun AllReviewsScreen(
-    reviews: List<ReviewDto>,
-    averageRating: Double,
-    totalReviews: Int,
-    isLoading: Boolean,
-    onBack: () -> Unit,
-    currentTab: DriverDestination,
-    onHomeClick: () -> Unit,
-    onOrdersClick: () -> Unit,
-    onHistoryClick: () -> Unit,
-    onChatClick: () -> Unit,
-    onProfileClick: () -> Unit
-) {
-    Scaffold(
-        bottomBar = {
-            DashboardBottomBar(
-                currentTab = currentTab,
-                onHomeClick = onHomeClick,
-                onOrdersClick = onOrdersClick,
-                onHistoryClick = onHistoryClick,
-                onChatClick = onChatClick,
-                onProfileClick = onProfileClick
-            )
-        },
-        containerColor = backgroundColor
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            // Header
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = textThemeColor)
-                }
                 Text(
-                    "Ratings & Feedback",
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = textThemeColor
+                    // Uses comments (plural) from your DTO
+                    text = review.comments ?: "No written feedback provided.",
+                    fontSize = 14.sp,
+                    color = textThemeColor.copy(alpha = 0.8f),
+                    lineHeight = 20.sp
                 )
             }
+        }
+    }
 
-            if (isLoading) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = actionTealColor)
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    // Summary Card (Matches RatingResponse fields)
-                    item {
-                        GlassCard {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column {
-                                    Text(
-                                        text = "%.1f".format(averageRating),
-                                        fontSize = 42.sp,
-                                        fontWeight = FontWeight.Black,
-                                        color = actionTealColor
-                                    )
-                                    Text(
-                                        "Average Rating",
-                                        fontSize = 12.sp,
-                                        color = Color.Gray
-                                    )
-                                }
-                                Column(horizontalAlignment = Alignment.End) {
-                                    RatingBar(rating = averageRating.toFloat())
-                                    Text(
-                                        "$totalReviews total reviews",
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = textThemeColor
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    if (reviews.isEmpty()) {
-                        item {
-                            Box(
-                                modifier = Modifier.fillParentMaxHeight(0.6f).fillMaxWidth(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("No feedback received yet", color = Color.Gray)
-                            }
-                        }
-                    } else {
-                        items(reviews) { review ->
-                            ReviewItem(review)
-                        }
-                    }
-
-                    item { Spacer(modifier = Modifier.height(24.dp)) }
-                }
+    @Composable
+    fun RatingBar(rating: Float, size: Dp = 18.dp) {
+        Row {
+            repeat(5) { index ->
+                Icon(
+                    imageVector = Icons.Default.Star,
+                    contentDescription = null,
+                    modifier = Modifier.size(size),
+                    tint = if (index < rating) statusOrangeColor else Color.LightGray.copy(alpha = 0.5f)
+                )
             }
         }
     }
-}
 
-@Composable
-fun ReviewItem(review: ReviewDto) {
-    GlassCard {
-        Column(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
+    @Composable
+    fun ProfileMenuCard(title: String, icon: ImageVector, onClick: () -> Unit) {
+        Surface(
+            onClick = onClick,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            color = Color.White,
+            shadowElevation = 2.dp
+        ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        // Uses reviewerName from your DTO
-                        text = review.reviewerName ?: "Anonymous User",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = textThemeColor
-                    )
-                    // Uses createdAt from your DTO
-                    Text(
-                        text = review.createdAt?.split("T")?.firstOrNull() ?: "",
-                        fontSize = 11.sp,
-                        color = Color.Gray
-                    )
+                Surface(
+                    modifier = Modifier.size(40.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    color = backgroundColor.copy(alpha = 0.4f)
+                ) {
+                    Icon(icon, null, modifier = Modifier.padding(8.dp), tint = textThemeColor)
                 }
-                // Uses rating from your DTO
-                RatingBar(rating = review.rating.toFloat(), size = 12.dp)
+                Spacer(modifier = Modifier.width(16.dp))
+                Text(title, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Icon(Icons.Default.ChevronRight, null, tint = Color.LightGray)
             }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Text(
-                // Uses comments (plural) from your DTO
-                text = review.comments ?: "No written feedback provided.",
-                fontSize = 14.sp,
-                color = textThemeColor.copy(alpha = 0.8f),
-                lineHeight = 20.sp
-            )
         }
     }
-}
-
-@Composable
-fun RatingBar(rating: Float, size: Dp = 18.dp) {
-    Row {
-        repeat(5) { index ->
-            Icon(
-                imageVector = Icons.Default.Star,
-                contentDescription = null,
-                modifier = Modifier.size(size),
-                tint = if (index < rating) statusOrangeColor else Color.LightGray.copy(alpha = 0.5f)
-            )
-        }
-    }
-}
-@Composable
-fun ProfileMenuCard(title: String, icon: ImageVector, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        color = Color.White,
-        shadowElevation = 2.dp
-    ) {
-        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(modifier = Modifier.size(40.dp), shape = RoundedCornerShape(10.dp), color = backgroundColor.copy(alpha = 0.4f)) {
-                Icon(icon, null, modifier = Modifier.padding(8.dp), tint = textThemeColor)
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Text(title, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            Icon(Icons.Default.ChevronRight, null, tint = Color.LightGray)
-        }
-    }
-}
 
 // ─────────────────────────────────────────────
 // (Keeping Other Screens Simple but Styled)
 // ─────────────────────────────────────────────
 
-@Composable
-fun YourInformationScreen(
-    fullName: String = "",
-    phone: String = "",
-    email: String = "",
-    cnic: String = "",
-    licenseNo: String = "",
-    onBack: () -> Unit = {},
-    onEditClick: () -> Unit = {},
-    onHomeClick: () -> Unit = {},
-    onOrdersClick: () -> Unit = {},
-    onHistoryClick: () -> Unit = {},
-    onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {},
-    currentTab: DriverDestination = DriverDashboard()
-) {
-    Scaffold(
-        bottomBar = {
-            DashboardBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick)
-        },
-        containerColor = backgroundColor
-    ) { innerPadding ->
-        Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp).verticalScroll(rememberScrollState())) {
-            Spacer(modifier = Modifier.height(24.dp))
-            IconButton(onClick = onBack, modifier = Modifier.background(Color.White, CircleShape)) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
-            }
-            Spacer(modifier = Modifier.height(24.dp))
-            Text("Personal Details", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+    @Composable
+    fun YourInformationScreen(
+        fullName: String = "",
+        phone: String = "",
+        email: String = "",
+        cnic: String = "",
+        licenseNo: String = "",
+        onBack: () -> Unit = {},
+        onEditClick: () -> Unit = {},
+        onHomeClick: () -> Unit = {},
+        onOrdersClick: () -> Unit = {},
+        onHistoryClick: () -> Unit = {},
+        onChatClick: () -> Unit = {},
+        onProfileClick: () -> Unit = {},
+        currentTab: DriverDestination = DriverDashboard()
+    ) {
+        Scaffold(
+            bottomBar = {
+                DashboardBottomBar(
+                    currentTab,
+                    onHomeClick,
+                    onOrdersClick,
+                    onHistoryClick,
+                    onChatClick,
+                    onProfileClick
+                )
+            },
+            containerColor = backgroundColor
+        ) { innerPadding ->
+            Column(
+                modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Spacer(modifier = Modifier.height(24.dp))
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.background(Color.White, CircleShape)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+                }
+                Spacer(modifier = Modifier.height(24.dp))
+                Text("Personal Details", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
 
-            Spacer(modifier = Modifier.height(24.dp))
-            GlassCard {
-                DetailRow("Full Name", fullName)
-                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color.Gray.copy(alpha = 0.1f))
-                DetailRow("Phone", phone)
-                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color.Gray.copy(alpha = 0.1f))
-                DetailRow("Email", email)
-                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color.Gray.copy(alpha = 0.1f))
-                DetailRow("License", licenseNo)
-            }
+                Spacer(modifier = Modifier.height(24.dp))
+                GlassCard {
+                    DetailRow("Full Name", fullName)
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 12.dp),
+                        color = Color.Gray.copy(alpha = 0.1f)
+                    )
+                    DetailRow("Phone", phone)
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 12.dp),
+                        color = Color.Gray.copy(alpha = 0.1f)
+                    )
+                    DetailRow("Email", email)
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 12.dp),
+                        color = Color.Gray.copy(alpha = 0.1f)
+                    )
+                    DetailRow("License", licenseNo)
+                }
 
-            Spacer(modifier = Modifier.height(32.dp))
-            Button(onClick = onEditClick, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)) {
-                Text("Edit Profile", fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(32.dp))
+                Button(
+                    onClick = onEditClick,
+                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
+                ) {
+                    Text("Edit Profile", fontWeight = FontWeight.Bold)
+                }
             }
         }
     }
-}
 
-@Composable
-fun DetailRow(label: String, value: String) {
-    Column {
-        Text(label, fontSize = 12.sp, color = Color.Gray)
-        Text(value, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+    @Composable
+    fun DetailRow(label: String, value: String) {
+        Column {
+            Text(label, fontSize = 12.sp, color = Color.Gray)
+            Text(value, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        }
     }
-}
 
 // ─────────────────────────────────────────────
 // CHAT & OTHERS (Basic Overhaul)
 // ─────────────────────────────────────────────
 
-@Composable
-fun ChatScreen(
-    contactName: String = "Kamran",
-    contactStatus: String = "Online",
-    contactImageUrl: String? = null,
-    messages: List<ChatMessage> = emptyList(),
-    onBack: () -> Unit = {},
-    onCallClick: () -> Unit = {},
-    onSendMessage: (String) -> Unit = {}
-) {
-    var messageText by remember { mutableStateOf("") }
+    @Composable
+    fun ChatScreen(
+        contactName: String = "Kamran",
+        contactStatus: String = "Online",
+        contactImageUrl: String? = null,
+        messages: List<ChatMessage> = emptyList(),
+        onBack: () -> Unit = {},
+        onCallClick: () -> Unit = {},
+        onSendMessage: (String) -> Unit = {}
+    ) {
+        var messageText by remember { mutableStateOf("") }
 
-    Column(modifier = Modifier.fillMaxSize().background(backgroundColor).imePadding()) {
-        // Chat Header
-        Surface(modifier = Modifier.fillMaxWidth(), shadowElevation = 4.dp, color = Color.White) {
-            Row(modifier = Modifier.padding(top = 48.dp, bottom = 12.dp, start = 16.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
-                Spacer(modifier = Modifier.width(8.dp))
-                Surface(modifier = Modifier.size(40.dp), shape = CircleShape, color = actionTealColor.copy(alpha = 0.1f)) {
-                    Icon(Icons.Default.Person, null, modifier = Modifier.padding(8.dp), tint = actionTealColor)
+        Column(modifier = Modifier.fillMaxSize().background(backgroundColor).imePadding()) {
+            // Chat Header
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shadowElevation = 4.dp,
+                color = Color.White
+            ) {
+                Row(
+                    modifier = Modifier.padding(
+                        top = 48.dp,
+                        bottom = 12.dp,
+                        start = 16.dp,
+                        end = 16.dp
+                    ), verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Surface(
+                        modifier = Modifier.size(40.dp),
+                        shape = CircleShape,
+                        color = actionTealColor.copy(alpha = 0.1f)
+                    ) {
+                        Icon(
+                            Icons.Default.Person,
+                            null,
+                            modifier = Modifier.padding(8.dp),
+                            tint = actionTealColor
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(contactName, fontWeight = FontWeight.Bold)
+                        Text(contactStatus, fontSize = 11.sp, color = actionTealColor)
+                    }
+                    IconButton(onClick = onCallClick) {
+                        Icon(
+                            Icons.Default.Call,
+                            null,
+                            tint = actionTealColor
+                        )
+                    }
                 }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(contactName, fontWeight = FontWeight.Bold)
-                    Text(contactStatus, fontSize = 11.sp, color = actionTealColor)
-                }
-                IconButton(onClick = onCallClick) { Icon(Icons.Default.Call, null, tint = actionTealColor) }
             }
-        }
 
-        // Messages Area
-        Box(modifier = Modifier.weight(1f).padding(horizontal = 16.dp)) {
-            LazyColumn(modifier = Modifier.fillMaxSize(), reverseLayout = false, verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
-                items(messages.size) { index ->
-                    val msg = messages[index]
-                    ChatBubbleEnhanced(msg)
+            // Messages Area
+            Box(modifier = Modifier.weight(1f).padding(horizontal = 16.dp)) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    reverseLayout = false,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(vertical = 16.dp)
+                ) {
+                    items(messages.size) { index ->
+                        val msg = messages[index]
+                        ChatBubbleEnhanced(msg)
+                    }
                 }
             }
-        }
 
-        // Input Area
-        Surface(modifier = Modifier.fillMaxWidth(), color = Color.White) {
-            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextField(
-                    value = messageText,
-                    onValueChange = { messageText = it },
-                    placeholder = { Text("Write a message...") },
-                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(24.dp)),
-                    colors = TextFieldDefaults.colors(focusedContainerColor = backgroundColor.copy(alpha = 0.3f), unfocusedContainerColor = backgroundColor.copy(alpha = 0.3f), focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Surface(modifier = Modifier.size(48.dp), shape = CircleShape, color = actionTealColor) {
-                    IconButton(onClick = { if(messageText.isNotBlank()) { onSendMessage(messageText); messageText = "" } }) {
-                        Icon(Icons.AutoMirrored.Filled.Send, null, tint = Color.White)
+            // Input Area
+            Surface(modifier = Modifier.fillMaxWidth(), color = Color.White) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextField(
+                        value = messageText,
+                        onValueChange = { messageText = it },
+                        placeholder = { Text("Write a message...") },
+                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(24.dp)),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = backgroundColor.copy(
+                                alpha = 0.3f
+                            ),
+                            unfocusedContainerColor = backgroundColor.copy(alpha = 0.3f),
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent
+                        )
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Surface(
+                        modifier = Modifier.size(48.dp),
+                        shape = CircleShape,
+                        color = actionTealColor
+                    ) {
+                        IconButton(onClick = {
+                            if (messageText.isNotBlank()) {
+                                onSendMessage(messageText); messageText = ""
+                            }
+                        }) {
+                            Icon(Icons.AutoMirrored.Filled.Send, null, tint = Color.White)
+                        }
                     }
                 }
             }
         }
     }
-}
 
-@Composable
-fun ChatBubbleEnhanced(message: ChatMessage) {
-    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = if(message.isSentByMe) Alignment.CenterEnd else Alignment.CenterStart) {
-        Surface(
-            shape = RoundedCornerShape(
-                topStart = 16.dp, topEnd = 16.dp,
-                bottomStart = if(message.isSentByMe) 16.dp else 2.dp,
-                bottomEnd = if(message.isSentByMe) 2.dp else 16.dp
-            ),
-            color = if(message.isSentByMe) actionTealColor else Color.White,
-            shadowElevation = 1.dp
+    @Composable
+    fun ChatBubbleEnhanced(message: ChatMessage) {
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = if (message.isSentByMe) Alignment.CenterEnd else Alignment.CenterStart
         ) {
-            Text(message.content, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp), color = if(message.isSentByMe) Color.White else textThemeColor, fontSize = 14.sp)
+            Surface(
+                shape = RoundedCornerShape(
+                    topStart = 16.dp, topEnd = 16.dp,
+                    bottomStart = if (message.isSentByMe) 16.dp else 2.dp,
+                    bottomEnd = if (message.isSentByMe) 2.dp else 16.dp
+                ),
+                color = if (message.isSentByMe) actionTealColor else Color.White,
+                shadowElevation = 1.dp
+            ) {
+                Text(
+                    message.content,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    color = if (message.isSentByMe) Color.White else textThemeColor,
+                    fontSize = 14.sp
+                )
+            }
         }
     }
-}
 
 // ─────────────────────────────────────────────
 // ADDITIONAL SCREENS (Simple Styling)
 // ─────────────────────────────────────────────
 
-/*@Composable
+    /*@Composable
 fun ActivateRouteScreen(
     activeRoute: String? = "No Active Route",
     activeVia: String? = null,
@@ -2220,924 +2515,1120 @@ fun ActivateRouteScreen(
         }
     }
 }*/
-@RequiresApi(Build.VERSION_CODES.O)
-@Composable
-fun ActivateRouteScreen(
-    activeRouteLabel: String? = null,
-    activeVia: String? = null,
-    nextRouteLabel: String? = null,
-    nextVia: String? = null,
-    pastRoutes: List<RouteData> = emptyList(),
-    isLoading: Boolean = false,
-    onCreateNew: () -> Unit = {},
-    onMakeActive: (RouteData) -> Unit = {},
-    onMakeNext: (RouteData) -> Unit = {},
-    onHomeClick: () -> Unit = {},
-    onOrdersClick: () -> Unit = {},
-    onHistoryClick: () -> Unit = {},
-    onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {},
-    currentTab: DriverDestination = DriverDashboard()
-) {
-    Scaffold(
-        bottomBar = {
-            DashboardBottomBar(
-                currentTab, onHomeClick, onOrdersClick,
-                onHistoryClick, onChatClick, onProfileClick
-            )
-        },
-        containerColor = backgroundColor
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 24.dp)
-                .verticalScroll(rememberScrollState())
-        ) {
-            Spacer(modifier = Modifier.height(32.dp))
-            Text(
-                "Route Management",
-                fontSize = 28.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = textThemeColor
-            )
-            Text(
-                "Manage your active and upcoming routes",
-                fontSize = 14.sp,
-                color = textThemeColor.copy(alpha = 0.55f)
-            )
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // ── Create New button ─────────────────────────────────────────────
-            Button(
-                onClick = onCreateNew,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Create New Route", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-            }
-
-            Spacer(modifier = Modifier.height(28.dp))
-
-            // ── Active Route ──────────────────────────────────────────────────
-            SectionLabel("Active Route")
-            Spacer(modifier = Modifier.height(8.dp))
-            GlassCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(
-                        modifier = Modifier.size(40.dp),
-                        shape = RoundedCornerShape(10.dp),
-                        color = actionTealColor.copy(alpha = 0.12f)
-                    ) {
-                        Icon(
-                            Icons.Default.PlayCircle,
-                            contentDescription = null,
-                            tint = actionTealColor,
-                            modifier = Modifier.padding(8.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column {
-                        Text(
-                            activeRouteLabel ?: "No active route",
-                            fontWeight = FontWeight.Bold,
-                            color = if (activeRouteLabel != null) textThemeColor
-                            else textThemeColor.copy(alpha = 0.4f)
-                        )
-                        if (activeVia != null) {
-                            Text(activeVia, fontSize = 12.sp, color = Color.Gray)
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // ── Next Route ────────────────────────────────────────────────────
-            SectionLabel("Upcoming Route")
-            Spacer(modifier = Modifier.height(8.dp))
-            GlassCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(
-                        modifier = Modifier.size(40.dp),
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color.Gray.copy(alpha = 0.1f)
-                    ) {
-                        Icon(
-                            Icons.Default.Schedule,
-                            contentDescription = null,
-                            tint = if (nextRouteLabel != null) actionTealColor else Color.Gray,
-                            modifier = Modifier.padding(8.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column {
-                        Text(
-                            nextRouteLabel ?: "No route scheduled",
-                            fontWeight = FontWeight.Medium,
-                            color = if (nextRouteLabel != null) textThemeColor
-                            else textThemeColor.copy(alpha = 0.4f)
-                        )
-                        if (nextVia != null) {
-                            Text(nextVia, fontSize = 12.sp, color = Color.Gray)
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(28.dp))
-
-            // ── Past Routes ───────────────────────────────────────────────────
-            SectionLabel("Recent Routes")
-            Spacer(modifier = Modifier.height(8.dp))
-
-            if (isLoading) {
-                Box(
-                    modifier = Modifier.fillMaxWidth().padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(color = actionTealColor)
-                }
-            } else if (pastRoutes.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        "No past routes yet",
-                        color = Color.Gray,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    pastRoutes.forEach { route ->
-                        val startName = route.startPoint
-                            ?: route.checkpoints?.firstOrNull()?.name ?: "?"
-                        val endName = route.endPoint
-                            ?: route.checkpoints?.lastOrNull()?.name ?: "?"
-                        val viaName = route.checkpoints?.getOrNull(1)?.name
-                        PastRouteCard(
-                            label = "$startName → $endName",
-                            via = viaName?.let { "via $it" },
-                            onMakeActive = { onMakeActive(route) },
-                            onMakeNext = { onMakeNext(route) }
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(32.dp))
-        }
-    }
-}
-
-@Composable
-private fun SectionLabel(text: String) {
-    Text(
-        text = text.uppercase(),
-        fontSize = 11.sp,
-        fontWeight = FontWeight.Bold,
-        color = textThemeColor.copy(alpha = 0.45f),
-        letterSpacing = 1.sp
-    )
-}
-
-@Composable
-private fun PastRouteCard(
-    label: String,
-    via: String?,
-    onMakeActive: () -> Unit,
-    onMakeNext: () -> Unit
-) {
-    GlassCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Surface(
-                modifier = Modifier.size(36.dp),
-                shape = RoundedCornerShape(8.dp),
-                color = backgroundColor.copy(alpha = 0.6f)
-            ) {
-                Icon(
-                    Icons.Default.Route,
-                    contentDescription = null,
-                    tint = textThemeColor.copy(alpha = 0.5f),
-                    modifier = Modifier.padding(7.dp)
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(label, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                if (via != null) {
-                    Text(via, fontSize = 12.sp, color = Color.Gray)
-                }
-            }
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            OutlinedButton(
-                onClick = onMakeNext,
-                modifier = Modifier.weight(1f).height(40.dp),
-                shape = RoundedCornerShape(10.dp),
-                border = BorderStroke(1.dp, actionTealColor.copy(alpha = 0.4f))
-            ) {
-                Icon(
-                    Icons.Default.Schedule,
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = actionTealColor
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Set as Next", fontSize = 12.sp, color = actionTealColor)
-            }
-            Button(
-                onClick = onMakeActive,
-                modifier = Modifier.weight(1f).height(40.dp),
-                shape = RoundedCornerShape(10.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
-            ) {
-                Icon(
-                    Icons.Default.PlayCircle,
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Set Active", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            }
-        }
-    }
-}
-
-@Composable
-fun SelectRouteScreen(
-    savedRoutes: List<Pair<String, String?>> = emptyList(),
-    onRouteSelected: (Int) -> Unit = {},
-    onCreateNewRoute: () -> Unit = {},
-    onHomeClick: () -> Unit = {},
-    onOrdersClick: () -> Unit = {},
-    onHistoryClick: () -> Unit = {},
-    onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {},
-    currentTab: DriverDestination = DriverDashboard()
-) {
-    Scaffold(bottomBar = { DashboardBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) }, containerColor = backgroundColor) { innerPadding ->
-        Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp)) {
-            Spacer(modifier = Modifier.height(32.dp))
-            Text("Select Route", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
-            Spacer(modifier = Modifier.height(24.dp))
-
-            if (savedRoutes.isEmpty()) {
-                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text("No routes found. Create one first.", color = Color.Gray, fontWeight = FontWeight.Medium)
-                }
-            } else {
-                LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    itemsIndexed(savedRoutes) { index, route ->
-                        GlassCard(modifier = Modifier.clickable { onRouteSelected(index) }) {
-                            Text(route.first, fontWeight = FontWeight.Bold)
-                            route.second?.let { Text(it, fontSize = 12.sp, color = Color.Gray) }
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-            Button(onClick = onCreateNewRoute, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)) {
-                Icon(Icons.Default.Add, null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Create New Route")
-            }
-            Spacer(modifier = Modifier.height(24.dp))
-        }
-    }
-}
-
-@Composable
-fun CreateRouteStep1(
-    routePoints: SnapshotStateList<GeoPoint>,
-    onNext: () -> Unit = {},
-    onBack: () -> Unit = {},
-    onHomeClick: () -> Unit = {},
-    onOrdersClick: () -> Unit = {},
-    onHistoryClick: () -> Unit = {},
-    onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {},
-    currentTab: DriverDestination = DriverDashboard()
-) {
-    Scaffold(bottomBar = { DashboardBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) }, containerColor = backgroundColor) { innerPadding ->
-        Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-            Box(modifier = Modifier.weight(1f)) {
-                OSMContainer(points = routePoints.toList(), onMapClick = { routePoints.add(it) }, onMapLongClick = {})
-
-                Surface(modifier = Modifier.align(Alignment.TopCenter).padding(16.dp).fillMaxWidth().shadow(4.dp, RoundedCornerShape(16.dp)), color = Color.White.copy(alpha = 0.9f), shape = RoundedCornerShape(16.dp)) {
-                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
-                        Text("Mark Route Points", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                        Text("${routePoints.size} Points", fontSize = 12.sp, color = actionTealColor, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-
-            Surface(modifier = Modifier.fillMaxWidth(), color = Color.White, shadowElevation = 8.dp) {
-                Button(onClick = onNext, enabled = routePoints.size >= 2, modifier = Modifier.padding(16.dp).fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)) {
-                    Text("Confirm Route Points")
-                }
-            }
-        }
-    }
-}
-
-@RequiresApi(Build.VERSION_CODES.O)
-@Composable
-fun CreateRouteStep2(
-    minDate: LocalDate? = null,
-    onNext: (LocalDateTime, LocalDateTime) -> Unit = { _, _ -> },
-    onBack: () -> Unit = {},
-    onHomeClick: () -> Unit = {},
-    onOrdersClick: () -> Unit = {},
-    onHistoryClick: () -> Unit = {},
-    onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {},
-    currentTab: DriverDestination = DriverDashboard()
-) {
-    var departureDate by remember { mutableStateOf<LocalDate?>(null) }
-    var arrivalDate by remember { mutableStateOf<LocalDate?>(null) }
-    var departureHour by remember { mutableIntStateOf(8) }
-    var departureMinute by remember { mutableIntStateOf(0) }
-    var arrivalHour by remember { mutableIntStateOf(8) }
-    var arrivalMinute by remember { mutableIntStateOf(0) }
-    var departureMonth by remember { mutableStateOf(YearMonth.now()) }
-    var arrivalMonth by remember { mutableStateOf(YearMonth.now()) }
-
-    Scaffold(bottomBar = { DashboardBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) }, containerColor = backgroundColor) { innerPadding ->
-        Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp).verticalScroll(rememberScrollState())) {
-            Spacer(modifier = Modifier.height(24.dp))
-            Text("Set Dates & Times", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Text("Departure Date", fontWeight = FontWeight.Bold)
-            CalendarView(
-                currentMonth = departureMonth,
-                selectedDate = departureDate,
-                minDate = minDate,
-                onDateSelected = { departureDate = it },
-                onMonthChanged = { departureMonth = it }
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            TimePickerRow(
-                label = "Departure Time",
-                hour = departureHour,
-                minute = departureMinute,
-                onHourChange = { departureHour = it },
-                onMinuteChange = { departureMinute = it }
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-            Text("Arrival Date", fontWeight = FontWeight.Bold)
-            CalendarView(
-                currentMonth = arrivalMonth,
-                selectedDate = arrivalDate,
-                minDate = departureDate ?: minDate,
-                onDateSelected = { arrivalDate = it },
-                onMonthChanged = { arrivalMonth = it }
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            TimePickerRow(
-                label = "Arrival Time",
-                hour = arrivalHour,
-                minute = arrivalMinute,
-                onHourChange = { arrivalHour = it },
-                onMinuteChange = { arrivalMinute = it }
-            )
-
-            Spacer(modifier = Modifier.height(32.dp))
-            Button(
-                onClick = {
-                    val dep = LocalDateTime.of(departureDate!!, java.time.LocalTime.of(departureHour, departureMinute))
-                    val arr = LocalDateTime.of(arrivalDate!!, java.time.LocalTime.of(arrivalHour, arrivalMinute))
-                    onNext(dep, arr)
-                },
-                enabled = departureDate != null && arrivalDate != null,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Text("Continue")
-            }
-            Spacer(modifier = Modifier.height(32.dp))
-        }
-    }
-}
-
-@RequiresApi(Build.VERSION_CODES.O)
-@Composable
-fun CreateRouteStep3(
-    viewModel: DriverViewModel, // Integrated ViewModel
-    onSave: (Double) -> Unit = {},
-    onBack: () -> Unit = {},
-    isLoading: Boolean = false,
-    onHomeClick: () -> Unit = {},
-    onOrdersClick: () -> Unit = {},
-    onHistoryClick: () -> Unit = {},
-    onChatClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {},
-    currentTab: DriverDestination = DriverDashboard()
-) {
-    var fare by remember { mutableFloatStateOf(1000f) }
-    val context = LocalContext.current
-    val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")
-
-    LaunchedEffect(Unit) {
-        if (viewModel.previewedPoints.isEmpty()) {
-            // Construct a temporary request to get the initial calculated times
-            val tempRequest = CreateRouteRequest(
-                driverId = 0, // Id doesn't matter for preview math
-                departureDate = viewModel.plannedDepartureDate?.format(formatter) ?: "",
-                arrivalDate = viewModel.plannedArrivalDate?.format(formatter) ?: "",
-                baseFare = fare.toDouble(),
-                shipmentType = viewModel.plannedShipmentType,
-                points = viewModel.plannedPoints.mapIndexed { index, gp ->
-                    RouteCheckpointRequest(
-                        name = getAddressFromGeoPoint(context, gp) ?: "Stop ${index + 1}",
-                        latitude = gp.latitude,
-                        longitude = gp.longitude,
-                        sequenceNo = index + 1
-                    )
-                }
-            )
-            viewModel.fetchRoutePreview(tempRequest)
-        }
-    }
-    Scaffold(
-        bottomBar = { DashboardBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) },
-        containerColor = backgroundColor
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 24.dp)
-                .verticalScroll(rememberScrollState()),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Spacer(modifier = Modifier.height(24.dp))
-            Text("Finalize Journey", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-
-            // --- Fare Slider ---
-            Text("PKR ${fare.toInt()}", fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, color = actionTealColor)
-            Slider(value = fare, onValueChange = { fare = it }, valueRange = 100f..50000f)
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
-
-            // --- NEW: Review Schedule Section ---
-            Text("Review Schedule", fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
-            Spacer(modifier = Modifier.height(8.dp))
-
-            viewModel.previewedPoints.forEachIndexed { index, point ->
-                CheckpointTimeItem(
-                    point = point,
-                    onTimeClick = {
-                        showDateTimePicker(context, point.estimatedArrival) { newDateTime ->
-                            val updatedList = viewModel.previewedPoints.toMutableList()
-                            updatedList[index] = point.copy(estimatedArrival = newDateTime)
-                            viewModel.updatePreviewedPoints(updatedList)
-                        }
-                    }
-                )
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
-
-            // --- Shipment Type (Radio Buttons) ---
-            Text("Booking Type", fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                RadioButton(
-                    selected = viewModel.plannedShipmentType == "Shared",
-                    onClick = { viewModel.plannedShipmentType = "Shared" }
-                )
-                Text("Shared")
-                Spacer(modifier = Modifier.width(16.dp))
-                RadioButton(
-                    selected = viewModel.plannedShipmentType == "Full",
-                    onClick = { viewModel.plannedShipmentType = "Full" }
-                )
-                Text("Full Load")
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // --- Preferences Toggles ---
-            PreferenceToggle("Accept Fragile Packages", viewModel.plannedIsFragile) { viewModel.plannedIsFragile = it }
-            PreferenceToggle("Accept Liquid Packages", viewModel.plannedIsLiquid) { viewModel.plannedIsLiquid = it }
-            PreferenceToggle("Accept Flammable Packages", viewModel.plannedIsFlammable) { viewModel.plannedIsFlammable = it }
-            PreferenceToggle("Keep Upright", viewModel.plannedKeepUpright) { viewModel.plannedKeepUpright = it }
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            if (isLoading) {
-                CircularProgressIndicator(color = actionTealColor)
-            } else {
-                Button(
-                    onClick = { onSave(fare.toDouble()) },
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Text(if (viewModel.templateRouteForUpdate != null) "Confirm & Update Route"
-                    else "Confirm & Create Route")
-                }
-            }
-            Spacer(modifier = Modifier.height(24.dp))
-        }
-    }
-}
-
-@Composable
-fun PreferenceToggle(label: String, isChecked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+    @RequiresApi(Build.VERSION_CODES.O)
+    @Composable
+    fun ActivateRouteScreen(
+        activeRouteLabel: String? = null,
+        activeVia: String? = null,
+        nextRouteLabel: String? = null,
+        nextVia: String? = null,
+        pastRoutes: List<RouteData> = emptyList(),
+        isLoading: Boolean = false,
+        onCreateNew: () -> Unit = {},
+        onMakeActive: (RouteData) -> Unit = {},
+        onMakeNext: (RouteData) -> Unit = {},
+        onHomeClick: () -> Unit = {},
+        onOrdersClick: () -> Unit = {},
+        onHistoryClick: () -> Unit = {},
+        onChatClick: () -> Unit = {},
+        onProfileClick: () -> Unit = {},
+        currentTab: DriverDestination = DriverDashboard()
     ) {
-        Text(label)
-        Switch(
-            checked = isChecked,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(checkedThumbColor = actionTealColor)
-        )
-    }
-}
-
-@RequiresApi(Build.VERSION_CODES.O)
-@Composable
-fun DelayReportScreen(
-    viewModel: DriverViewModel,
-    checkpointId: Int,
-    checkpointName: String,
-    onConfirm: () -> Unit = {},
-    onBack: () -> Unit = {}
-) {
-    var days by remember { mutableIntStateOf(0) }
-    var hours by remember { mutableIntStateOf(0) }
-    var reason by remember { mutableStateOf("") }
-
-    LaunchedEffect(checkpointId) {
-        viewModel.fetchEstimatedArrival(checkpointId)
-    }
-
-    val rawArrival = viewModel.estimatedArrivalForDelay
-    val displayArrival = remember(rawArrival) {
-        rawArrival?.let {
-            try {
-                val clean = it.trim('"') // API may return quoted string
-                val datePart = clean.substringBefore("T")
-                val timePart = clean.substringAfter("T").substringBeforeLast(":")
-                "$datePart at $timePart"
-            } catch (e: Exception) { it }
-        } ?: "Loading..."
-    }
-
-    Scaffold(
-        containerColor = backgroundColor,
-        topBar = {
-            Row(
+        Scaffold(
+            bottomBar = {
+                DashboardBottomBar(
+                    currentTab, onHomeClick, onOrdersClick,
+                    onHistoryClick, onChatClick, onProfileClick
+                )
+            },
+            containerColor = backgroundColor
+        ) { innerPadding ->
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(horizontal = 24.dp)
+                    .verticalScroll(rememberScrollState())
             ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = textThemeColor)
-                }
+                Spacer(modifier = Modifier.height(32.dp))
                 Text(
-                    "Report Delay",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
+                    "Route Management",
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.ExtraBold,
                     color = textThemeColor
                 )
-            }
-        }
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 24.dp)
-                .verticalScroll(rememberScrollState()),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Checkpoint Info Card
-            GlassCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.LocationOn,
-                        contentDescription = null,
-                        tint = actionTealColor,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text("Checkpoint", fontSize = 12.sp, color = textThemeColor.copy(alpha = 0.5f))
-                        Text(checkpointName, fontWeight = FontWeight.Bold, color = textThemeColor)
-                    }
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.Schedule,
-                        contentDescription = null,
-                        tint = actionTealColor,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text("Current Estimated Arrival", fontSize = 12.sp, color = textThemeColor.copy(alpha = 0.5f))
-                        Text(displayArrival, fontWeight = FontWeight.Bold, color = textThemeColor)
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Delay Picker Card
-            GlassCard {
                 Text(
-                    "How much delay?",
-                    fontWeight = FontWeight.Bold,
-                    color = textThemeColor,
-                    fontSize = 16.sp
+                    "Manage your active and upcoming routes",
+                    fontSize = 14.sp,
+                    color = textThemeColor.copy(alpha = 0.55f)
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    "This will push all future checkpoints forward.",
-                    fontSize = 12.sp,
-                    color = textThemeColor.copy(alpha = 0.5f)
-                )
-
                 Spacer(modifier = Modifier.height(24.dp))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    DelayCounter(
-                        label = "Days",
-                        value = days,
-                        onIncrement = { if (days < 30) days++ },
-                        onDecrement = { if (days > 0) days-- }
-                    )
-                    DelayCounter(
-                        label = "Hours",
-                        value = hours,
-                        onIncrement = { if (hours < 23) hours++ },
-                        onDecrement = { if (hours > 0) hours-- }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // Summary
-                val totalHours = days * 24 + hours
-                val summaryColor = if (totalHours > 0) statusRedColor else textThemeColor.copy(alpha = 0.4f)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(summaryColor.copy(alpha = 0.08f))
-                        .padding(16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        if (totalHours > 0) "Total delay: $totalHours hour${if (totalHours != 1) "s" else ""}"
-                        else "No delay selected",
-                        fontWeight = FontWeight.Bold,
-                        color = summaryColor,
-                        fontSize = 15.sp
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-
-            OutlinedTextField(
-                value = reason,
-                onValueChange = { reason = it },
-                label = { Text("Reason for delay") },
-                placeholder = { Text("e.g. Road blocked, weather conditions...") },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 2,
-                maxLines = 4,
-                shape = RoundedCornerShape(12.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = actionTealColor,
-                    focusedLabelColor = actionTealColor,
-                    cursorColor = actionTealColor
-                )
-            )
-            Spacer(modifier = Modifier.height(32.dp))
-
-            if (viewModel.isLoading) {
-                CircularProgressIndicator(color = actionTealColor)
-            } else {
+                // ── Create New button ─────────────────────────────────────────────
                 Button(
-                    onClick = {
-                        if ((days > 0 || hours > 0) && reason.isNotBlank()) {
-                            viewModel.reportDelay(checkpointId, days, hours, reason) {
-                                onConfirm()
+                    onClick = onCreateNew,
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Create New Route", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                }
+
+                Spacer(modifier = Modifier.height(28.dp))
+
+                // ── Active Route ──────────────────────────────────────────────────
+                SectionLabel("Active Route")
+                Spacer(modifier = Modifier.height(8.dp))
+                GlassCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            modifier = Modifier.size(40.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            color = actionTealColor.copy(alpha = 0.12f)
+                        ) {
+                            Icon(
+                                Icons.Default.PlayCircle,
+                                contentDescription = null,
+                                tint = actionTealColor,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column {
+                            Text(
+                                activeRouteLabel ?: "No active route",
+                                fontWeight = FontWeight.Bold,
+                                color = if (activeRouteLabel != null) textThemeColor
+                                else textThemeColor.copy(alpha = 0.4f)
+                            )
+                            if (activeVia != null) {
+                                Text(activeVia, fontSize = 12.sp, color = Color.Gray)
                             }
                         }
-                    },
-                    enabled = (days > 0 || hours > 0) && reason.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = statusRedColor,
-                        disabledContainerColor = Color.Gray.copy(alpha = 0.2f),
-                        disabledContentColor = Color.Gray.copy(alpha = 0.5f)
-                    )
-                ) {
-                    Icon(Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Confirm Delay", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(24.dp))
-        }
-    }
-}
+                Spacer(modifier = Modifier.height(20.dp))
 
-@Composable
-fun DelayCounter(
-    label: String,
-    value: Int,
-    onIncrement: () -> Unit,
-    onDecrement: () -> Unit
-) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, fontSize = 13.sp, color = textThemeColor.copy(alpha = 0.6f), fontWeight = FontWeight.Medium)
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(
-                onClick = onDecrement,
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(textThemeColor.copy(alpha = 0.08f))
-            ) {
-                Icon(Icons.Default.Remove, contentDescription = null, tint = textThemeColor, modifier = Modifier.size(16.dp))
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Text(
-                value.toString().padStart(2, '0'),
-                fontSize = 32.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = if (value > 0) statusRedColor else textThemeColor.copy(alpha = 0.3f)
-            )
-            Spacer(modifier = Modifier.width(16.dp))
-            IconButton(
-                onClick = onIncrement,
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(actionTealColor.copy(alpha = 0.1f))
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null, tint = actionTealColor, modifier = Modifier.size(16.dp))
-            }
-        }
-    }
-}
-@Composable
-fun TimePickerRow(
-    label: String,
-    hour: Int,
-    minute: Int,
-    onHourChange: (Int) -> Unit,
-    onMinuteChange: (Int) -> Unit
-) {
-    GlassCard {
-        Text(label, fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(12.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Hour picker
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                IconButton(onClick = { onHourChange((hour + 1) % 24) }) {
-                    Icon(Icons.Default.KeyboardArrowUp, null, tint = actionTealColor)
-                }
-                Text(
-                    String.format("%02d", hour),
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = actionTealColor
-                )
-                IconButton(onClick = { onHourChange((hour - 1 + 24) % 24) }) {
-                    Icon(Icons.Default.KeyboardArrowDown, null, tint = actionTealColor)
-                }
-            }
-
-            Text(":", fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp))
-
-            // Minute picker
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                IconButton(onClick = { onMinuteChange((minute + 15) % 60) }) {
-                    Icon(Icons.Default.KeyboardArrowUp, null, tint = actionTealColor)
-                }
-                Text(
-                    String.format("%02d", minute),
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = actionTealColor
-                )
-                IconButton(onClick = { onMinuteChange((minute - 15 + 60) % 60) }) {
-                    Icon(Icons.Default.KeyboardArrowDown, null, tint = actionTealColor)
-                }
-            }
-        }
-    }
-}
-@Composable
-fun ReviewDialog(
-    onSubmit: (rating: Int, comment: String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var rating by remember { mutableIntStateOf(0) }
-    var comment by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Color.White,
-        shape = RoundedCornerShape(24.dp),
-        title = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                Text("Rate the Customer", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = textThemeColor)
-                Text("How was this delivery experience?", fontSize = 13.sp, color = Color.Gray, textAlign = TextAlign.Center)
-            }
-        },
-        text = {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth()
-            ) {
+                // ── Next Route ────────────────────────────────────────────────────
+                SectionLabel("Upcoming Route")
                 Spacer(modifier = Modifier.height(8.dp))
-                // Star rating row
-                Row(horizontalArrangement = Arrangement.Center) {
-                    repeat(5) { index ->
-                        IconButton(onClick = { rating = index + 1 }) {
+                GlassCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            modifier = Modifier.size(40.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color.Gray.copy(alpha = 0.1f)
+                        ) {
                             Icon(
-                                imageVector = Icons.Default.Star,
+                                Icons.Default.Schedule,
                                 contentDescription = null,
-                                tint = if (index < rating) statusOrangeColor else Color.LightGray,
-                                modifier = Modifier.size(36.dp)
+                                tint = if (nextRouteLabel != null) actionTealColor else Color.Gray,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column {
+                            Text(
+                                nextRouteLabel ?: "No route scheduled",
+                                fontWeight = FontWeight.Medium,
+                                color = if (nextRouteLabel != null) textThemeColor
+                                else textThemeColor.copy(alpha = 0.4f)
+                            )
+                            if (nextVia != null) {
+                                Text(nextVia, fontSize = 12.sp, color = Color.Gray)
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(28.dp))
+
+                // ── Past Routes ───────────────────────────────────────────────────
+                SectionLabel("Recent Routes")
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (isLoading) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = actionTealColor)
+                    }
+                } else if (pastRoutes.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "No past routes yet",
+                            color = Color.Gray,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        pastRoutes.forEach { route ->
+                            val startName = route.startPoint
+                                ?: route.checkpoints?.firstOrNull()?.name ?: "?"
+                            val endName = route.endPoint
+                                ?: route.checkpoints?.lastOrNull()?.name ?: "?"
+                            val viaName = route.checkpoints?.getOrNull(1)?.name
+                            PastRouteCard(
+                                label = "$startName → $endName",
+                                via = viaName?.let { "via $it" },
+                                onMakeActive = { onMakeActive(route) },
+                                onMakeNext = { onMakeNext(route) }
                             )
                         }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(32.dp))
+            }
+        }
+    }
+
+    @Composable
+    private fun SectionLabel(text: String) {
+        Text(
+            text = text.uppercase(),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = textThemeColor.copy(alpha = 0.45f),
+            letterSpacing = 1.sp
+        )
+    }
+
+    @Composable
+    private fun PastRouteCard(
+        label: String,
+        via: String?,
+        onMakeActive: () -> Unit,
+        onMakeNext: () -> Unit
+    ) {
+        GlassCard {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    modifier = Modifier.size(36.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    color = backgroundColor.copy(alpha = 0.6f)
+                ) {
+                    Icon(
+                        Icons.Default.Route,
+                        contentDescription = null,
+                        tint = textThemeColor.copy(alpha = 0.5f),
+                        modifier = Modifier.padding(7.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(label, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    if (via != null) {
+                        Text(via, fontSize = 12.sp, color = Color.Gray)
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onMakeNext,
+                    modifier = Modifier.weight(1f).height(40.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, actionTealColor.copy(alpha = 0.4f))
+                ) {
+                    Icon(
+                        Icons.Default.Schedule,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = actionTealColor
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Set as Next", fontSize = 12.sp, color = actionTealColor)
+                }
+                Button(
+                    onClick = onMakeActive,
+                    modifier = Modifier.weight(1f).height(40.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
+                ) {
+                    Icon(
+                        Icons.Default.PlayCircle,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Set Active", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun SelectRouteScreen(
+        savedRoutes: List<Pair<String, String?>> = emptyList(),
+        onRouteSelected: (Int) -> Unit = {},
+        onCreateNewRoute: () -> Unit = {},
+        onHomeClick: () -> Unit = {},
+        onOrdersClick: () -> Unit = {},
+        onHistoryClick: () -> Unit = {},
+        onChatClick: () -> Unit = {},
+        onProfileClick: () -> Unit = {},
+        currentTab: DriverDestination = DriverDashboard()
+    ) {
+        Scaffold(bottomBar = {
+            DashboardBottomBar(
+                currentTab,
+                onHomeClick,
+                onOrdersClick,
+                onHistoryClick,
+                onChatClick,
+                onProfileClick
+            )
+        }, containerColor = backgroundColor) { innerPadding ->
+            Column(
+                modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp)
+            ) {
+                Spacer(modifier = Modifier.height(32.dp))
+                Text("Select Route", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+                Spacer(modifier = Modifier.height(24.dp))
+
+                if (savedRoutes.isEmpty()) {
+                    Box(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "No routes found. Create one first.",
+                            color = Color.Gray,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        itemsIndexed(savedRoutes) { index, route ->
+                            GlassCard(modifier = Modifier.clickable { onRouteSelected(index) }) {
+                                Text(route.first, fontWeight = FontWeight.Bold)
+                                route.second?.let { Text(it, fontSize = 12.sp, color = Color.Gray) }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+                Button(
+                    onClick = onCreateNewRoute,
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
+                ) {
+                    Icon(Icons.Default.Add, null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Create New Route")
+                }
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+        }
+    }
+
+    @Composable
+    fun CreateRouteStep1(
+        routePoints: SnapshotStateList<GeoPoint>,
+        onNext: () -> Unit = {},
+        onBack: () -> Unit = {},
+        onHomeClick: () -> Unit = {},
+        onOrdersClick: () -> Unit = {},
+        onHistoryClick: () -> Unit = {},
+        onChatClick: () -> Unit = {},
+        onProfileClick: () -> Unit = {},
+        currentTab: DriverDestination = DriverDashboard()
+    ) {
+        Scaffold(bottomBar = {
+            DashboardBottomBar(
+                currentTab,
+                onHomeClick,
+                onOrdersClick,
+                onHistoryClick,
+                onChatClick,
+                onProfileClick
+            )
+        }, containerColor = backgroundColor) { innerPadding ->
+            Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+                Box(modifier = Modifier.weight(1f)) {
+                    OSMContainer(
+                        points = routePoints.toList(),
+                        onMapClick = { routePoints.add(it) },
+                        onMapLongClick = {})
+
+                    Surface(
+                        modifier = Modifier.align(Alignment.TopCenter).padding(16.dp).fillMaxWidth()
+                            .shadow(4.dp, RoundedCornerShape(16.dp)),
+                        color = Color.White.copy(alpha = 0.9f),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(onClick = onBack) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    null
+                                )
+                            }
+                            Text(
+                                "Mark Route Points",
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                "${routePoints.size} Points",
+                                fontSize = 12.sp,
+                                color = actionTealColor,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color.White,
+                    shadowElevation = 8.dp
+                ) {
+                    Button(
+                        onClick = onNext,
+                        enabled = routePoints.size >= 2,
+                        modifier = Modifier.padding(16.dp).fillMaxWidth().height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
+                    ) {
+                        Text("Confirm Route Points")
+                    }
+                }
+            }
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    @Composable
+    fun CreateRouteStep2(
+        minDate: LocalDate? = null,
+        onNext: (LocalDateTime, LocalDateTime) -> Unit = { _, _ -> },
+        onBack: () -> Unit = {},
+        onHomeClick: () -> Unit = {},
+        onOrdersClick: () -> Unit = {},
+        onHistoryClick: () -> Unit = {},
+        onChatClick: () -> Unit = {},
+        onProfileClick: () -> Unit = {},
+        currentTab: DriverDestination = DriverDashboard()
+    ) {
+        var departureDate by remember { mutableStateOf<LocalDate?>(null) }
+        var arrivalDate by remember { mutableStateOf<LocalDate?>(null) }
+        var departureHour by remember { mutableIntStateOf(8) }
+        var departureMinute by remember { mutableIntStateOf(0) }
+        var arrivalHour by remember { mutableIntStateOf(8) }
+        var arrivalMinute by remember { mutableIntStateOf(0) }
+        var departureMonth by remember { mutableStateOf(YearMonth.now()) }
+        var arrivalMonth by remember { mutableStateOf(YearMonth.now()) }
+
+        Scaffold(bottomBar = {
+            DashboardBottomBar(
+                currentTab,
+                onHomeClick,
+                onOrdersClick,
+                onHistoryClick,
+                onChatClick,
+                onProfileClick
+            )
+        }, containerColor = backgroundColor) { innerPadding ->
+            Column(
+                modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Spacer(modifier = Modifier.height(24.dp))
+                Text("Set Dates & Times", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Text("Departure Date", fontWeight = FontWeight.Bold)
+                CalendarView(
+                    currentMonth = departureMonth,
+                    selectedDate = departureDate,
+                    minDate = minDate,
+                    onDateSelected = { departureDate = it },
+                    onMonthChanged = { departureMonth = it }
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                TimePickerRow(
+                    label = "Departure Time",
+                    hour = departureHour,
+                    minute = departureMinute,
+                    onHourChange = { departureHour = it },
+                    onMinuteChange = { departureMinute = it }
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+                Text("Arrival Date", fontWeight = FontWeight.Bold)
+                CalendarView(
+                    currentMonth = arrivalMonth,
+                    selectedDate = arrivalDate,
+                    minDate = departureDate ?: minDate,
+                    onDateSelected = { arrivalDate = it },
+                    onMonthChanged = { arrivalMonth = it }
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                TimePickerRow(
+                    label = "Arrival Time",
+                    hour = arrivalHour,
+                    minute = arrivalMinute,
+                    onHourChange = { arrivalHour = it },
+                    onMinuteChange = { arrivalMinute = it }
+                )
+
+                Spacer(modifier = Modifier.height(32.dp))
+                Button(
+                    onClick = {
+                        val dep = LocalDateTime.of(
+                            departureDate!!,
+                            java.time.LocalTime.of(departureHour, departureMinute)
+                        )
+                        val arr = LocalDateTime.of(
+                            arrivalDate!!,
+                            java.time.LocalTime.of(arrivalHour, arrivalMinute)
+                        )
+                        onNext(dep, arr)
+                    },
+                    enabled = departureDate != null && arrivalDate != null,
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Text("Continue")
+                }
+                Spacer(modifier = Modifier.height(32.dp))
+            }
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    @Composable
+    fun CreateRouteStep3(
+        viewModel: DriverViewModel, // Integrated ViewModel
+        onSave: (Double) -> Unit = {},
+        onBack: () -> Unit = {},
+        isLoading: Boolean = false,
+        onHomeClick: () -> Unit = {},
+        onOrdersClick: () -> Unit = {},
+        onHistoryClick: () -> Unit = {},
+        onChatClick: () -> Unit = {},
+        onProfileClick: () -> Unit = {},
+        currentTab: DriverDestination = DriverDashboard()
+    ) {
+        var fare by remember { mutableFloatStateOf(1000f) }
+        val context = LocalContext.current
+        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")
+
+        LaunchedEffect(viewModel.plannedPoints.size) {
+            Log.e("POINTS DEBUG", "plannedPoints size = ${viewModel.plannedPoints.size}")
+            Log.e("POINTS DEBUG", "previewedPoints size = ${viewModel.previewedPoints.size}")
+            Log.e("POINTS DEBUG", "templateRoute = ${viewModel.selectedTemplateRoute?.routeId}")
+
+            if (viewModel.plannedPoints.isEmpty()) {
+                return@LaunchedEffect
+            }
+
+            if (viewModel.previewedPoints.isEmpty()) {
+                val tempRequest = CreateRouteRequest(
+                    driverId = 0,
+                    departureDate = viewModel.plannedDepartureDate?.format(formatter) ?: "",
+                    arrivalDate = viewModel.plannedArrivalDate?.format(formatter) ?: "",
+                    baseFare = fare.toDouble(),
+                    shipmentType = viewModel.plannedShipmentType,
+                    points = viewModel.plannedPoints.mapIndexed { index, gp ->
+                        RouteCheckpointRequest(
+                            name = getAddressFromGeoPoint(context, gp) ?: "Stop ${index + 1}",
+                            latitude = gp.latitude,
+                            longitude = gp.longitude,
+                            sequenceNo = index + 1
+                        )
+                    }
+                )
+                viewModel.fetchRoutePreview(tempRequest)
+            }
+        }
+        Scaffold(
+            bottomBar = {
+                DashboardBottomBar(
+                    currentTab,
+                    onHomeClick,
+                    onOrdersClick,
+                    onHistoryClick,
+                    onChatClick,
+                    onProfileClick
+                )
+            },
+            containerColor = backgroundColor
+        ) { innerPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(horizontal = 24.dp)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Spacer(modifier = Modifier.height(24.dp))
+                Text("Finalize Journey", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+
+                // --- Fare Slider ---
+                Text(
+                    "PKR ${fare.toInt()}",
+                    fontSize = 36.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = actionTealColor
+                )
+                Slider(value = fare, onValueChange = { fare = it }, valueRange = 100f..50000f)
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+                // --- NEW: Review Schedule Section ---
+                Text(
+                    "Review Schedule",
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.align(Alignment.Start)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                viewModel.previewedPoints.forEachIndexed { index, point ->
+                    CheckpointTimeItem(
+                        point = point,
+                        onTimeClick = {
+                            showDateTimePicker(context, point.estimatedArrival) { newDateTime ->
+                                val updatedList = viewModel.previewedPoints.toMutableList()
+                                updatedList[index] = point.copy(estimatedArrival = newDateTime)
+                                viewModel.updatePreviewedPoints(updatedList)
+                            }
+                        }
+                    )
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+                // --- Shipment Type (Radio Buttons) ---
+                Text(
+                    "Booking Type",
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.align(Alignment.Start)
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    RadioButton(
+                        selected = viewModel.plannedShipmentType == "Shared",
+                        onClick = { viewModel.plannedShipmentType = "Shared" }
+                    )
+                    Text("Shared")
+                    Spacer(modifier = Modifier.width(16.dp))
+                    RadioButton(
+                        selected = viewModel.plannedShipmentType == "Full",
+                        onClick = { viewModel.plannedShipmentType = "Full" }
+                    )
+                    Text("Full Load")
+                }
+
                 Spacer(modifier = Modifier.height(16.dp))
+
+                // --- Preferences Toggles ---
+                PreferenceToggle(
+                    "Accept Fragile Packages",
+                    viewModel.plannedIsFragile
+                ) { viewModel.plannedIsFragile = it }
+                PreferenceToggle(
+                    "Accept Liquid Packages",
+                    viewModel.plannedIsLiquid
+                ) { viewModel.plannedIsLiquid = it }
+                PreferenceToggle(
+                    "Accept Flammable Packages",
+                    viewModel.plannedIsFlammable
+                ) { viewModel.plannedIsFlammable = it }
+                PreferenceToggle(
+                    "Keep Upright",
+                    viewModel.plannedKeepUpright
+                ) { viewModel.plannedKeepUpright = it }
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                if (isLoading) {
+                    CircularProgressIndicator(color = actionTealColor)
+                } else {
+                    Button(
+                        onClick = { onSave(fare.toDouble()) },
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text(
+                            if (viewModel.templateRouteForUpdate != null) "Confirm & Update Route"
+                            else "Confirm & Create Route"
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+        }
+    }
+
+    @Composable
+    fun PreferenceToggle(label: String, isChecked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(label)
+            Switch(
+                checked = isChecked,
+                onCheckedChange = onCheckedChange,
+                colors = SwitchDefaults.colors(checkedThumbColor = actionTealColor)
+            )
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    @Composable
+    fun DelayReportScreen(
+        viewModel: DriverViewModel,
+        checkpointId: Int,
+        checkpointName: String,
+        onConfirm: () -> Unit = {},
+        onBack: () -> Unit = {}
+    ) {
+        var days by remember { mutableIntStateOf(0) }
+        var hours by remember { mutableIntStateOf(0) }
+        var reason by remember { mutableStateOf("") }
+
+        LaunchedEffect(checkpointId) {
+            viewModel.fetchEstimatedArrival(checkpointId)
+        }
+
+        val rawArrival = viewModel.estimatedArrivalForDelay
+        val displayArrival = remember(rawArrival) {
+            rawArrival?.let {
+                try {
+                    val clean = it.trim('"') // API may return quoted string
+                    val datePart = clean.substringBefore("T")
+                    val timePart = clean.substringAfter("T").substringBeforeLast(":")
+                    "$datePart at $timePart"
+                } catch (e: Exception) {
+                    it
+                }
+            } ?: "Loading..."
+        }
+
+        Scaffold(
+            containerColor = backgroundColor,
+            topBar = {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.Default.ArrowBack,
+                            contentDescription = "Back",
+                            tint = textThemeColor
+                        )
+                    }
+                    Text(
+                        "Report Delay",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = textThemeColor
+                    )
+                }
+            }
+        ) { innerPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(horizontal = 24.dp)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Checkpoint Info Card
+                GlassCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.LocationOn,
+                            contentDescription = null,
+                            tint = actionTealColor,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                "Checkpoint",
+                                fontSize = 12.sp,
+                                color = textThemeColor.copy(alpha = 0.5f)
+                            )
+                            Text(
+                                checkpointName,
+                                fontWeight = FontWeight.Bold,
+                                color = textThemeColor
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.Schedule,
+                            contentDescription = null,
+                            tint = actionTealColor,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                "Current Estimated Arrival",
+                                fontSize = 12.sp,
+                                color = textThemeColor.copy(alpha = 0.5f)
+                            )
+                            Text(
+                                displayArrival,
+                                fontWeight = FontWeight.Bold,
+                                color = textThemeColor
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Delay Picker Card
+                GlassCard {
+                    Text(
+                        "How much delay?",
+                        fontWeight = FontWeight.Bold,
+                        color = textThemeColor,
+                        fontSize = 16.sp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "This will push all future checkpoints forward.",
+                        fontSize = 12.sp,
+                        color = textThemeColor.copy(alpha = 0.5f)
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        DelayCounter(
+                            label = "Days",
+                            value = days,
+                            onIncrement = { if (days < 30) days++ },
+                            onDecrement = { if (days > 0) days-- }
+                        )
+                        DelayCounter(
+                            label = "Hours",
+                            value = hours,
+                            onIncrement = { if (hours < 23) hours++ },
+                            onDecrement = { if (hours > 0) hours-- }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    // Summary
+                    val totalHours = days * 24 + hours
+                    val summaryColor =
+                        if (totalHours > 0) statusRedColor else textThemeColor.copy(alpha = 0.4f)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(summaryColor.copy(alpha = 0.08f))
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            if (totalHours > 0) "Total delay: $totalHours hour${if (totalHours != 1) "s" else ""}"
+                            else "No delay selected",
+                            fontWeight = FontWeight.Bold,
+                            color = summaryColor,
+                            fontSize = 15.sp
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+
                 OutlinedTextField(
-                    value = comment,
-                    onValueChange = { comment = it },
-                    label = { Text("Leave a comment (optional)") },
+                    value = reason,
+                    onValueChange = { reason = it },
+                    label = { Text("Reason for delay") },
+                    placeholder = { Text("e.g. Road blocked, weather conditions...") },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 2,
                     maxLines = 4,
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = actionTealColor,
-                        focusedLabelColor = actionTealColor
+                        focusedLabelColor = actionTealColor,
+                        cursorColor = actionTealColor
                     )
                 )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { if (rating > 0) onSubmit(rating, comment) },
-                enabled = rating > 0,
-                colors = ButtonDefaults.buttonColors(containerColor = actionTealColor),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Submit Review", fontWeight = FontWeight.Bold)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-                Text("Skip", color = Color.Gray)
+                Spacer(modifier = Modifier.height(32.dp))
+
+                if (viewModel.isLoading) {
+                    CircularProgressIndicator(color = actionTealColor)
+                } else {
+                    Button(
+                        onClick = {
+                            if ((days > 0 || hours > 0) && reason.isNotBlank()) {
+                                viewModel.reportDelay(checkpointId, days, hours, reason) {
+                                    onConfirm()
+                                }
+                            }
+                        },
+                        enabled = (days > 0 || hours > 0) && reason.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = statusRedColor,
+                            disabledContainerColor = Color.Gray.copy(alpha = 0.2f),
+                            disabledContentColor = Color.Gray.copy(alpha = 0.5f)
+                        )
+                    ) {
+                        Icon(
+                            Icons.Default.Warning,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Confirm Delay", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
-    )
-}
+    }
+
+    @Composable
+    fun DelayCounter(
+        label: String,
+        value: Int,
+        onIncrement: () -> Unit,
+        onDecrement: () -> Unit
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                label,
+                fontSize = 13.sp,
+                color = textThemeColor.copy(alpha = 0.6f),
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = onDecrement,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(textThemeColor.copy(alpha = 0.08f))
+                ) {
+                    Icon(
+                        Icons.Default.Remove,
+                        contentDescription = null,
+                        tint = textThemeColor,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Text(
+                    value.toString().padStart(2, '0'),
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (value > 0) statusRedColor else textThemeColor.copy(alpha = 0.3f)
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                IconButton(
+                    onClick = onIncrement,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(actionTealColor.copy(alpha = 0.1f))
+                ) {
+                    Icon(
+                        Icons.Default.Add,
+                        contentDescription = null,
+                        tint = actionTealColor,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun TimePickerRow(
+        label: String,
+        hour: Int,
+        minute: Int,
+        onHourChange: (Int) -> Unit,
+        onMinuteChange: (Int) -> Unit
+    ) {
+        GlassCard {
+            Text(label, fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Hour picker
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    IconButton(onClick = { onHourChange((hour + 1) % 24) }) {
+                        Icon(Icons.Default.KeyboardArrowUp, null, tint = actionTealColor)
+                    }
+                    Text(
+                        String.format("%02d", hour),
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = actionTealColor
+                    )
+                    IconButton(onClick = { onHourChange((hour - 1 + 24) % 24) }) {
+                        Icon(Icons.Default.KeyboardArrowDown, null, tint = actionTealColor)
+                    }
+                }
+
+                Text(
+                    ":",
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+
+                // Minute picker
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    IconButton(onClick = { onMinuteChange((minute + 15) % 60) }) {
+                        Icon(Icons.Default.KeyboardArrowUp, null, tint = actionTealColor)
+                    }
+                    Text(
+                        String.format("%02d", minute),
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = actionTealColor
+                    )
+                    IconButton(onClick = { onMinuteChange((minute - 15 + 60) % 60) }) {
+                        Icon(Icons.Default.KeyboardArrowDown, null, tint = actionTealColor)
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun ReviewDialog(
+        onSubmit: (rating: Int, comment: String) -> Unit,
+        onDismiss: () -> Unit
+    ) {
+        var rating by remember { mutableIntStateOf(0) }
+        var comment by remember { mutableStateOf("") }
+
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            containerColor = Color.White,
+            shape = RoundedCornerShape(24.dp),
+            title = {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        "Rate the Customer",
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 20.sp,
+                        color = textThemeColor
+                    )
+                    Text(
+                        "How was this delivery experience?",
+                        fontSize = 13.sp,
+                        color = Color.Gray,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            },
+            text = {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    // Star rating row
+                    Row(horizontalArrangement = Arrangement.Center) {
+                        repeat(5) { index ->
+                            IconButton(onClick = { rating = index + 1 }) {
+                                Icon(
+                                    imageVector = Icons.Default.Star,
+                                    contentDescription = null,
+                                    tint = if (index < rating) statusOrangeColor else Color.LightGray,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = comment,
+                        onValueChange = { comment = it },
+                        label = { Text("Leave a comment (optional)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 2,
+                        maxLines = 4,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = actionTealColor,
+                            focusedLabelColor = actionTealColor
+                        )
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { if (rating > 0) onSubmit(rating, comment) },
+                    enabled = rating > 0,
+                    colors = ButtonDefaults.buttonColors(containerColor = actionTealColor),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Submit Review", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                    Text("Skip", color = Color.Gray)
+                }
+            }
+        )
+    }

@@ -28,6 +28,7 @@ import com.example.cargoconnectapp.ui.models.datamodels.UpdateRouteRequest
 import com.example.cargoconnectapp.ui.models.viewmodels.CustomerViewModel
 
 @RequiresApi(Build.VERSION_CODES.O)
+@androidx.annotation.RequiresPermission(allOf = [android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION])
 fun NavGraphBuilder.driverGraph(
     navController: NavHostController,
     session: UserSessionViewModel,
@@ -52,7 +53,7 @@ fun NavGraphBuilder.driverGraph(
     }
 
     // ── HOME ──
-    composable<DriverDashboard> { backStackEntry ->
+    composable<DriverDashboard>  { backStackEntry ->
         val page = backStackEntry.toRoute<DriverDashboard>().page
 
         LaunchedEffect(Unit) { driverViewModel.fetchActiveRoute(session.roleBasedId) }
@@ -96,10 +97,36 @@ fun NavGraphBuilder.driverGraph(
                             }
                         }
                     },
-                    driverViewModel = driverViewModel
+                    driverViewModel = driverViewModel,
+                    onDetailsClick = { index ->
+                        val checkpoint = driverViewModel.activeRoute?.checkpoints?.getOrNull(index)
+                        if(checkpoint != null) {
+                            driverViewModel.routeShipmentsAtCheckpoint(
+                                checkpoint.checkpointId ?: 0,
+                                session.roleBasedId
+                            ) {
+                                navController.navigate(DriverDashboard(DriverDashboardPage.RouteDetails))
+                            }
+                        }
+
+                    }
                 )
             }
+            DriverDashboardPage.RouteDetails -> {
+                val data = driverViewModel.routeCustomerDetail
 
+                if (data != null) {
+                    CustomerShipmentsDetailScreen(
+                        data = data,
+                        onBack = { navController.popBackStack() },
+                        onHomeClick = { navController.navigateTab(DriverDashboard()) },
+                        onOrdersClick = { navController.navigateTab(DriverShipmentRequest()) },
+                        onHistoryClick = { navController.navigateTab(DriverDeliveries()) },
+                        onChatClick = { navController.navigateTab(DriverChat()) },
+                        onProfileClick = { navController.navigateTab(DriverProfileScreen()) },
+                    )
+                }
+            }
             DriverDashboardPage.ConfirmDelivery -> {
                 val data = driverViewModel.checkpointShipments
 
@@ -140,23 +167,27 @@ fun NavGraphBuilder.driverGraph(
                         },
                         onReviewDismiss = { driverViewModel.dismissReview() },
                         onConfirm = {
-                            isNavigating.value = true  // Lock before async work
+                            isNavigating.value = true
                             if (driverViewModel.isStartCheckpoint) {
+                                // fromIndex = 0 (truck appears at start), toIndex = 0 (stays at start, no movement)
+                                // Actually for first checkpoint, truck just snaps to index 0
+                                driverViewModel.pendingTruckAnimation = Pair(0, 0)
                                 driverViewModel.startTrip(data.checkpoint_id, session.roleBasedId)
                                 navController.navigate(DriverDashboard(DriverDashboardPage.TripInfo)) {
-                                    popUpTo(DriverDashboard(DriverDashboardPage.ConfirmDelivery)) {
-                                        inclusive = true
-                                    }
+                                    popUpTo(DriverDashboard(DriverDashboardPage.ConfirmDelivery)) { inclusive = true }
                                 }
                             } else {
-                                driverViewModel.confirmCheckpoint(
-                                    data.checkpoint_id,
-                                    session.roleBasedId
-                                ) {
+                                val confirmedIndex = driverViewModel.activeRoute?.checkpoints
+                                    ?.sortedBy { it.sequenceNo }
+                                    ?.indexOfFirst { it.checkpointId == data.checkpoint_id } ?: -1
+
+                                if (confirmedIndex > 0) {
+                                    driverViewModel.pendingTruckAnimation = Pair(confirmedIndex - 1, confirmedIndex)
+                                }
+
+                                driverViewModel.confirmCheckpoint(data.checkpoint_id, session.roleBasedId) {
                                     navController.navigate(DriverDashboard(DriverDashboardPage.TripInfo)) {
-                                        popUpTo(DriverDashboard(DriverDashboardPage.ConfirmDelivery)) {
-                                            inclusive = true
-                                        }
+                                        popUpTo(DriverDashboard(DriverDashboardPage.ConfirmDelivery)) { inclusive = true }
                                     }
                                 }
                             }
@@ -486,7 +517,6 @@ fun NavGraphBuilder.driverGraph(
                         },
 
                         onMakeActive = { route ->
-                            // Re-use past route as ACTIVE: skip map, go to dates
                             driverViewModel.clearPlannedRoute()
                             driverViewModel.routeActivationTarget = RouteTarget.ACTIVE
                             driverViewModel.selectedTemplateRoute = route
@@ -602,6 +632,12 @@ fun NavGraphBuilder.driverGraph(
                 }
 
                 DriverProfilePage.EditInformation -> {
+                    val route = driverViewModel.selectedTemplateRoute
+                    LaunchedEffect(route?.routeId) {
+                        if (route != null && driverViewModel.plannedPoints.isEmpty()) {
+                            driverViewModel.reFillPlannedPoints()
+                        }
+                    }
                     CreateRouteStep3(
                         isLoading = driverViewModel.isLoading,
                         viewModel = driverViewModel,
@@ -618,6 +654,8 @@ fun NavGraphBuilder.driverGraph(
 
                             if (templateRoute != null) {
                                 // ── UPDATE existing route ─────────────────────────────────
+
+
                                 val updateRequest = UpdateRouteRequest(
                                     routeId = templateRoute.routeId ?: -1,
                                     driverId = session.roleBasedId,
@@ -638,6 +676,13 @@ fun NavGraphBuilder.driverGraph(
                                         )
                                     }
                                 )
+                                val points = finalPoints.map { cp ->
+                                    RouteCheckpointUpdate(
+                                        sequenceNo = cp.sequenceNo,
+                                        estimatedArrival = cp.estimatedArrival ?: ""
+                                    )
+                                }
+                                Log.e("DriverGraph", "Sending Points [${points}]")
                                 driverViewModel.updateRoute(updateRequest, session.roleBasedId) {
                                     navController.navigate(DriverProfileScreen(DriverProfilePage.ActivateRoute)) {
                                         popUpTo(DriverProfileScreen(DriverProfilePage.ActivateRoute)) {

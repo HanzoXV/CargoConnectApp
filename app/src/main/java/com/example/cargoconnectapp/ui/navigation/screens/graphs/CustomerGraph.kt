@@ -233,7 +233,12 @@ fun NavGraphBuilder.customerGraph(
                 DriverFoundScreen(
                     availableTrucks  = customerViewModel.availableTrucks,
                     currentTab       = args.tab,
-                    onSendRequest    = { truck -> customerViewModel.sendDeliveryRequest(truck) },
+                    onSendRequest    = { truck ->
+                        customerViewModel.sendDeliveryRequest(truck)
+                        customerViewModel.availableTrucks.remove(truck)
+                        if(customerViewModel.availableTrucks.isEmpty())
+                            navController.navigate(CustomerNewShipment(CustomerNewShipmentPage.AddPackages))
+                                       },
                     onShowDetails    = { truck -> 
                         customerViewModel.selectedTruck = truck
                         navController.navigate(CustomerNewShipment(CustomerNewShipmentPage.TruckDetails))
@@ -531,13 +536,38 @@ fun NavGraphBuilder.customerGraph(
                     onChatClick            = { navController.navigateTab(CustomerChat()) },
                     onProfileClick         = { navController.navigateTab(CustomerProfile()) },
                     onBookingDetailsClick  = { navController.navigate(CustomerBookings()) },
+                    onRequestHistoryClick  = { navController.navigate(CustomerProfile(CustomerProfilePage.RequestHistory)) },
+                    onReviewsClick  = { navController.navigate(CustomerProfile(CustomerProfilePage.AllReviews)) },
                     onYourInformationClick = { },
                     onLogoutClick          = { authViewModel.logout() }
                 )
             }
+            CustomerProfilePage.RequestHistory -> {
+                LaunchedEffect(Unit) {
+                    customerViewModel.fetchRequestHistory(session.roleBasedId)
+                }
+                RequestHistoryScreen(
+                    requests = customerViewModel.requestsHistory,
+                    isLoading = customerViewModel.isLoading,
+                    onBack = { navController.popBackStack() },
+                    currentTab = args.tab,
+                    onHomeClick = args.onHomeClick,
+                    onOrdersClick = args.onOrdersClick,
+                    onHistoryClick = args.onHistoryClick,
+                    onChatClick = args.onChatClick,
+                    onProfileClick = args.onProfileClick
+                )
+            }
             CustomerProfilePage.YourInformation,
             CustomerProfilePage.EditInformation,
-            CustomerProfilePage.AllReviews -> { }
+            CustomerProfilePage.AllReviews -> {
+                LaunchedEffect(Unit) {
+                    customerViewModel.fetchRequestHistory(session.roleBasedId)
+                }
+                CustomerReviewsScreen(
+
+                )
+            }
         }
     }
 }

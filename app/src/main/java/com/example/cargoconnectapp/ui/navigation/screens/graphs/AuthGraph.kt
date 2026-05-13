@@ -118,7 +118,7 @@ fun NavGraphBuilder.authGraph (
                         if (authViewModel.userRole == UserRoles.Customer) {
                             authViewModel.registerUser(context = context) {
                                 customerViewModel.clearAllData()
-                                navController.navigate(CustomerDashboardPage.Summary)
+                                navController.navigate(CustomerDashboard(CustomerDashboardPage.Summary))
                             }
                         } else {
                             navController.navigate(Register(step = RegisterStep.Step5))

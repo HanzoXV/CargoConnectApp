@@ -73,6 +73,12 @@ class CustomerViewModel : ViewModel() {
     var recipientContact by mutableStateOf("")
     var recipientInstructions by mutableStateOf("")
 
+    var requestsHistory by mutableStateOf<List<CustomerRequestDto>>(emptyList())
+        private set
+
+    var reviews by mutableStateOf<List<ReviewDto>>(emptyList())
+        private set
+
     // Available Trucks
     var availableTrucks = mutableStateListOf<AvailabilityDto>()
 
@@ -127,6 +133,9 @@ class CustomerViewModel : ViewModel() {
         canReviewData = null
         reviewRating = 0
         reviewComments = ""
+        requestsHistory = emptyList()
+        reviews = emptyList()
+        chatThreads = emptyList()
     }
 
     // ── API Spot 1: Dashboard Load ───────────────────────────────────────────
@@ -143,6 +152,37 @@ class CustomerViewModel : ViewModel() {
                 }
             } catch (e: Exception) {
                 Log.e("CustomerViewModel", "Draft retrieval failed", e)
+            }
+        }
+    }
+    fun fetchReviews(userId: Int) {
+        viewModelScope.launch {
+            isLoading = true
+            try {
+                val response = RetrofitClient.instance.getAllReviews(userId)
+                if (response.isSuccessful) {
+                    reviews = response.body() ?: emptyList()
+                }
+            } catch (e: Exception) {
+                Log.e("CustomerViewModel", "fetchReviews failed", e)
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+    fun fetchRequestHistory(customerId: Int) {
+        viewModelScope.launch {
+            isLoading = true
+            try {
+                val response = RetrofitClient.instance.getCustomerRequests(customerId)
+                if (response.isSuccessful) {
+                    requestsHistory = response.body() ?: emptyList()
+                }
+            } catch (e: Exception) {
+                Log.e("CustomerViewModel", "fetchRequestHistory failed.", e)
+            }
+            finally {
+                isLoading = false
             }
         }
     }

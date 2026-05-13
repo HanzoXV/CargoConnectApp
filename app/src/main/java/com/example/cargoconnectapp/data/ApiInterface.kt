@@ -54,6 +54,10 @@ interface ApiInterface {
         @Path("id") driverId: Int
     ): Response<DriverRequestsResponse>
 
+    @POST("api/drivers/location")
+    suspend fun updateDriverLocation(request: DriverLocationRequestDto
+    ): Response<DriverLocationRequestDto>
+
     // ── Shipments ─────────────────────────────────────────────────────────────
     @POST("api/shipments/draft/{customerId}")
     suspend fun createOrGetDraft(@Path("customerId") customerId: Int): Response<CreateShipmentResponse>
@@ -221,4 +225,9 @@ interface ApiInterface {
 
     @GET("api/drivers/{driverId}/truck-info")
     suspend fun getTruckInfo(@Path("driverId") driverId: Int): Response<TruckInfoResponse>
+
+    @GET("api/customers/{customerId}/requests")
+    suspend fun getCustomerRequests(
+        @Path("customerId") customerId: Int
+    ): Response<List<CustomerRequestDto>>
 }

@@ -1,5 +1,6 @@
 package com.example.cargoconnectapp.ui.navigation.screens
 
+import android.Manifest
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -15,7 +16,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -34,6 +34,9 @@ import androidx.compose.ui.unit.sp
 import android.os.Build
 import android.widget.Toast
 import androidx.annotation.RequiresApi
+import androidx.annotation.RequiresPermission
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.tooling.preview.Preview
 import coil.compose.AsyncImage
 import com.example.cargoconnectapp.ui.models.datamodels.*
@@ -47,8 +50,10 @@ import com.example.cargoconnectapp.ui.themes.*
 import com.example.cargoconnectapp.ui.models.map.OSMContainer
 import com.example.cargoconnectapp.ui.models.map.getAddressFromGeoPoint
 import com.example.cargoconnectapp.data.RetrofitClient
+import com.example.cargoconnectapp.ui.models.destinations.DriverDestination
 import kotlinx.coroutines.delay
 import org.osmdroid.util.GeoPoint
+import java.sql.Time
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
@@ -386,7 +391,7 @@ fun NewShipmentPackageDetailsScreen(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
-            Text("Dimensions (cm)", fontWeight = FontWeight.Bold, color = Color.Gray, fontSize = 14.sp)
+            Text("Dimensions (meters)", fontWeight = FontWeight.Bold, color = Color.Gray, fontSize = 14.sp)
             Spacer(modifier = Modifier.height(8.dp))
             GlassCard {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -429,8 +434,8 @@ fun FormCheckbox(label: String, checked: Boolean, onCheckedChange: (Boolean) -> 
 }
 
 @RequiresApi(Build.VERSION_CODES.O)
-@androidx.annotation.RequiresPermission(
-    allOf = [android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION]
+@RequiresPermission(
+    allOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION]
 )
 @Composable
 fun NewShipmentRouteScreen(
@@ -790,11 +795,20 @@ fun TruckSelectionCard(
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(truck.rating.toString(), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
+                        Spacer(modifier = Modifier.width(5.dp))
                     }
+                    PackagePreferenceTag(truck.prefType, Color.Blue)
                 }
                 Text(truck.truckModel ?: "Unknown Vehicle", fontSize = 14.sp, color = Color.Gray)
                 Text("Fare: Rs ${truck.price}", color = actionTealColor, fontWeight = FontWeight.Bold)
             }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            if(truck.containsLiquid) PackagePreferenceTag("Liquid", Color.Cyan)
+            if(truck.containsFlammable) PackagePreferenceTag("Flammable", Color.Yellow)
+            if(truck.containsKeepUpright) PackagePreferenceTag("KeepUpright", Color.Green)
+            if(truck.containsFragile) PackagePreferenceTag("Fragile", Color.Red)
         }
         Spacer(modifier = Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -805,6 +819,27 @@ fun TruckSelectionCard(
                 Text("Show Details", fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
         }
+    }
+}
+@Composable
+fun PackagePreferenceTag(text: String, color: Color) {
+    Row(
+        modifier = Modifier
+            // 1. Clip the shape first so the background follows the curve
+            .clip(RoundedCornerShape(12.dp))
+            // 2. Set transparency using .copy(alpha = 0.5f)
+            .background(color.copy(alpha = 0.2f))
+            .wrapContentSize()
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = text,
+            // 3. Keep text fully opaque or slightly dimmed for better contrast
+            color = Color.Black,
+            style = MaterialTheme.typography.labelMedium
+        )
     }
 }
 
@@ -1147,7 +1182,9 @@ fun CustomerProfileScreen(
     isSwitchedToDriver: Boolean = false,
     onBookingDetailsClick: () -> Unit = {},
     onYourInformationClick: () -> Unit = {},
+    onRequestHistoryClick: () -> Unit = {},
     onLogoutClick: () -> Unit = {},
+    onReviewsClick: () -> Unit = {},
     onSwitchRoleToggle: (Boolean) -> Unit = {},
     onHomeClick: () -> Unit = {},
     onOrdersClick: () -> Unit = {},
@@ -1183,10 +1220,232 @@ fun CustomerProfileScreen(
             }
             Column(modifier = Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 ProfileMenuCard("Shipment History", Icons.Default.History, onBookingDetailsClick)
+                ProfileMenuCard("Request History", Icons.Default.Assignment, onRequestHistoryClick)
+                ProfileMenuCard("Reviews", Icons.Default.Assignment, onReviewsClick)
                 ProfileMenuCard("Personal Details", Icons.Default.Badge, onYourInformationClick)
                 Button(onClick = onLogoutClick, modifier = Modifier.fillMaxWidth().height(56.dp).padding(top = 12.dp), colors = ButtonDefaults.buttonColors(containerColor = statusRedColor.copy(alpha = 0.1f), contentColor = statusRedColor), shape = RoundedCornerShape(16.dp)) { Text("Logout", fontWeight = FontWeight.Bold) }
             }
         }
+    }
+}
+@RequiresApi(Build.VERSION_CODES.O)
+@Composable
+fun RequestHistoryScreen(
+    requests: List<CustomerRequestDto>,
+    isLoading: Boolean,
+    onBack: () -> Unit = {},
+    onHomeClick: () -> Unit = {},
+    onOrdersClick: () -> Unit = {},
+    onHistoryClick: () -> Unit = {},
+    onChatClick: () -> Unit = {},
+    onProfileClick: () -> Unit = {},
+    currentTab: CustomerDestination = CustomerDashboard()
+) {
+    Scaffold(
+        bottomBar = { CustomerBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) },
+        containerColor = backgroundColor
+    ) { innerPadding ->
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp)) {
+            Spacer(modifier = Modifier.height(24.dp))
+            IconButton(onClick = onBack, modifier = Modifier.background(Color.White, CircleShape)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("Request History", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            Text("Status of your sent requests", fontSize = 14.sp, color = Color.Gray)
+            Spacer(modifier = Modifier.height(24.dp))
+
+            if (isLoading) {
+                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = actionTealColor)
+                }
+            } else if (requests.isEmpty()) {
+                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Text("No requests found.", color = Color.Gray)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(bottom = 24.dp)
+                ) {
+                    items(requests) { request ->
+                        CustomerRequestCard(request)
+                    }
+                }
+            }
+        }
+    }
+}
+@Composable
+fun CustomerReviewsScreen(
+    reviews: List<ReviewDto>,
+    averageRating: Double,
+    totalReviews: Int,
+    isLoading: Boolean,
+    onBack: () -> Unit,
+    currentTab: CustomerDestination,
+    onHomeClick: () -> Unit,
+    onOrdersClick: () -> Unit,
+    onHistoryClick: () -> Unit,
+    onChatClick: () -> Unit,
+    onProfileClick: () -> Unit
+) {
+    Scaffold(
+        bottomBar = { CustomerBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) },
+        containerColor = backgroundColor
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        Icons.Default.ArrowBack,
+                        contentDescription = "Back",
+                        tint = textThemeColor
+                    )
+                }
+                Text(
+                    "Ratings & Feedback",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = textThemeColor
+                )
+            }
+
+            if (isLoading) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = actionTealColor)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Summary Card (Matches RatingResponse fields)
+                    item {
+                        GlassCard {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "%.1f".format(averageRating),
+                                        fontSize = 42.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = actionTealColor
+                                    )
+                                    Text(
+                                        "Average Rating",
+                                        fontSize = 12.sp,
+                                        color = Color.Gray
+                                    )
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    RatingBar(rating = averageRating.toFloat())
+                                    Text(
+                                        "$totalReviews total reviews",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = textThemeColor
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    if (reviews.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier.fillParentMaxHeight(0.6f).fillMaxWidth(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("No feedback received yet", color = Color.Gray)
+                            }
+                        }
+                    } else {
+                        items(reviews) { review ->
+                            ReviewItem(review)
+                        }
+                    }
+
+                    item { Spacer(modifier = Modifier.height(24.dp)) }
+                }
+            }
+        }
+    }
+}
+
+@RequiresApi(Build.VERSION_CODES.O)
+@Composable
+fun CustomerRequestCard(request: CustomerRequestDto) {
+    GlassCard {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column {
+                Text("Request #${request.RequestId}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text(formatDate(request.DateRequested), fontSize = 12.sp, color = Color.Gray)
+            }
+            RequestStatusBadge(request.Status)
+        }
+        
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Person, null, modifier = Modifier.size(16.dp), tint = actionTealColor)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(request.DriverName, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+        }
+        
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
+                Icon(Icons.Default.PinDrop, null, modifier = Modifier.size(14.dp).padding(top = 2.dp), tint = Color.Gray)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(request.PickupLocation ?: "N/A", fontSize = 13.sp, color = textThemeColor.copy(alpha = 0.8f))
+            }
+            Row(verticalAlignment = Alignment.Top) {
+                Icon(Icons.Default.Flag, null, modifier = Modifier.size(14.dp).padding(top = 2.dp), tint = Color.Gray)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(request.DropoffLocation ?: "N/A", fontSize = 13.sp, color = textThemeColor.copy(alpha = 0.8f))
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(12.dp))
+        Text("Fare: Rs ${request.Fare}", color = actionTealColor, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+    }
+}
+
+@Composable
+fun RequestStatusBadge(status: String) {
+    val color = when (status.lowercase()) {
+        "pending" -> statusBlueColor
+        "accepted", "approved" -> Color(0xFF4CAF50)
+        "rejected", "canceled" -> statusRedColor
+        else -> Color.Gray
+    }
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = color.copy(alpha = 0.1f)
+    ) {
+        Text(
+            text = status.uppercase(),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            color = color,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.ExtraBold
+        )
     }
 }
 
@@ -1530,5 +1789,23 @@ fun BookingStatusBadgeOverhauled(status: BookingStatus) {
 @Preview
 @Composable
 fun displaycancelscreen () {
-    CancelBookingScreen({},{},{},{},{},{})
+    val truck = AvailabilityDto(
+        1,
+        pickupLat = 0.0,
+        pickupLong = 0.0,
+        destLat = 0.0,
+        destLong = 0.0,
+        requestedDate = "",
+        isStrict = false,
+        containsLiquid = true,
+        containsFragile = true,
+        containsKeepUpright = true,
+        containsFlammable = true
+    )
+    TruckSelectionCard(
+        truck = truck,
+        onSendRequest = { },
+        onShowDetails = {  }
+    )
 }
+

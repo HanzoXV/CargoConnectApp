@@ -186,3 +186,16 @@ data class RouteCheckpointUpdate(
     val sequenceNo: Int,
     val estimatedArrival: String
 )
+
+data class CustomerRequestDto(
+    val RequestId: Int,
+    val ShipmentId: Int,
+    val DriverName: String,
+    val DriverContact: String?,
+    val Status: String,
+    val Fare: Double,
+    val DateRequested: String,
+    val ShipmentType: String?,
+    val PickupLocation: String?,
+    val DropoffLocation: String?
+)
