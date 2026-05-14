@@ -54,7 +54,16 @@ data class RouteSchedule(
     @SerializedName("arrivalDate")
     val arrivalDate: String? = null
 )
-
+data class RoutePointDto(
+    val latitude: Double,
+    val longitude: Double,
+    val sequence: Int,
+    val isReached: Boolean
+)
+data class DriverLocationResponseDto(
+    val latitude: Double,
+    val longitude: Double
+)
 data class CheckpointData(
     @SerializedName("checkpointId")
     val checkpointId: Int? = null,

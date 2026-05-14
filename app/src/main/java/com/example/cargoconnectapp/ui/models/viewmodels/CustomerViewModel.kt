@@ -79,6 +79,11 @@ class CustomerViewModel : ViewModel() {
     var reviews by mutableStateOf<List<ReviewDto>>(emptyList())
         private set
 
+    var averageRating by mutableDoubleStateOf(0.0)
+        private set
+    var totalReviews by mutableIntStateOf(0)
+        private set
+
     // Available Trucks
     var availableTrucks = mutableStateListOf<AvailabilityDto>()
 
@@ -206,6 +211,19 @@ class CustomerViewModel : ViewModel() {
                 errorMessage = e.message
             } finally {
                 isLoading = false
+            }
+        }
+    }
+    fun fetchAverageRating(userId: Int) {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.instance.getAverageRating(userId)
+                if (response.isSuccessful) {
+                    averageRating = response.body()?.averageRating ?: 0.0
+                    totalReviews = response.body()?.totalReviews ?: 0
+                }
+            } catch (e: Exception) {
+                Log.e("CustomerViewModel", "fetchAverageRating failed", e)
             }
         }
     }

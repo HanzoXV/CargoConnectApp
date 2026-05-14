@@ -2,7 +2,6 @@ package com.example.cargoconnectapp.ui.navigation.screens
 
 import android.os.Build
 import android.util.Log
-import android.widget.RatingBar
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -30,11 +29,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -47,6 +44,7 @@ import com.example.cargoconnectapp.ui.models.map.OSMContainer
 import com.example.cargoconnectapp.ui.models.map.getAddressFromGeoPoint
 import org.osmdroid.util.GeoPoint
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import com.example.cargoconnectapp.ui.models.datamodels.BookingData
 import com.example.cargoconnectapp.ui.models.datamodels.PackageDto
@@ -328,29 +326,30 @@ fun DriverDashboardScreen(
                 if (cp.latitude != null && cp.longitude != null) GeoPoint(cp.latitude, cp.longitude) else null
             }
 
-            LaunchedEffect(geoPoints) {
-                val pending = driverViewModel.pendingTruckAnimation
-                if (pending != null && geoPoints.isNotEmpty()) {
-                    val (fromIdx, toIdx) = pending
-                    val fromPoint = geoPoints.getOrNull(fromIdx)
-                    val toPoint   = geoPoints.getOrNull(toIdx)
+            LaunchedEffect(driverViewModel.pendingTruckAnimation, geoPoints.size) {
+                val pending = driverViewModel.pendingTruckAnimation ?: return@LaunchedEffect
+                if (geoPoints.isEmpty()) return@LaunchedEffect  // wait, don't clear yet
 
-                    if (fromPoint != null && toPoint != null) {
-                        if (fromIdx == toIdx) {
-                            // First checkpoint: just place truck, no animation
-                            truckAtIndex = toIdx
-                        } else {
-                            truckAtIndex = toIdx
-                            truckAnimationEvent = TruckAnimationEvent(
-                                from       = fromPoint,
-                                to         = toPoint,
-                                durationMs = 15_000L
-                            )
-                        }
-                    }
+                Log.d("TRUCK", "Both ready. pending=$pending geoPoints=${geoPoints.size}")
 
-                    driverViewModel.pendingTruckAnimation = null
+                val (fromIdx, toIdx) = pending
+                val fromPoint = geoPoints.getOrNull(fromIdx)
+                val toPoint = geoPoints.getOrNull(toIdx)
+
+                if (fromIdx == toIdx) {
+                    truckAtIndex = toIdx
+                    // for start checkpoint, no animation needed
+                } else if (fromPoint != null && toPoint != null) {
+                    truckAtIndex = toIdx
+                    driverViewModel.isTruckAnimating = true
+                    truckAnimationEvent = TruckAnimationEvent(
+                        from = fromPoint,
+                        to = toPoint,
+                        durationMs = 15_000L
+                    )
                 }
+
+                driverViewModel.pendingTruckAnimation = null  // only clear AFTER both were ready
             }
             AnimatedContent(
                 targetState = selectedTab,
@@ -386,7 +385,15 @@ fun DriverDashboardScreen(
                             }
                             Spacer(modifier = Modifier.height(16.dp))
 
-                            Box(modifier = Modifier.height(200.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)))   {
+                            Box(
+                                modifier = Modifier
+                                    .height(200.dp)
+                                    .fillMaxWidth()
+                                    .graphicsLayer {
+                                        shape = RoundedCornerShape(16.dp)
+                                        clip = true
+                                    }
+                            ) {
 
                                 if (geoPoints.isEmpty()) {
                                     Box(modifier = Modifier.fillMaxSize().background(Color.Gray.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
@@ -1601,7 +1608,6 @@ fun ShipmentDetailedCard(
 // ─────────────────────────────────────────────
 // CUSTOMER SHIPMENTS DETAIL SCREEN (Overhauled)
 // ─────────────────────────────────────────────
-@Preview
 @Composable
 fun CustomerShipmentsDetailScreen(
     data: CheckpointShipmentsResponse,
@@ -1626,85 +1632,87 @@ fun CustomerShipmentsDetailScreen(
         },
         containerColor = backgroundColor
     ) { innerPadding ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 24.dp)
-                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Spacer(modifier = Modifier.height(24.dp))
-            IconButton(onClick = onBack, modifier = Modifier.background(Color.White, CircleShape)) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
-            }
-            Spacer(modifier = Modifier.height(24.dp))
-            Text("Shipment Details", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            item {
+                Spacer(modifier = Modifier.height(24.dp))
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.background(Color.White, CircleShape)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+                }
+                Spacer(modifier = Modifier.height(24.dp))
+                Text("Shipment Details", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
 
-            Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(24.dp))
+            }
 
             if (data.to_load.shipments.isEmpty() && data.to_drop.shipments.isEmpty()) {
-                GlassCard {
-                    Text(
-                        "You have no shipments booked at this checkpoint",
-                        color = Color.Gray,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                item {
+                    GlassCard {
+                        Text(
+                            "You have no shipments booked at this checkpoint",
+                            color = Color.Gray,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             } else {
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        if (data.to_load.shipments.isEmpty()) {
-                            item {
-                                Text(
-                                    "No pickups at this stop.",
-                                    color = Color.Gray,
-                                    fontSize = 13.sp
-                                )
-                            }
-                        } else {
-                            itemsIndexed(data.to_load.shipments) { _, shipment ->
-                                ShipmentActionCard(
-                                    shipment = shipment,
-                                    color = statusOrangeColor,
-                                    label = "Pickup From",
-                                    actionLabel = if (shipment.status == "In-Transit") "✓ Picked Up" else "Pickup",
-                                    actionEnabled = shipment.status == "Assigned",
-                                    onAction = { }
-                                )
-                            }
-                        }
+                if (data.to_load.shipments.isEmpty()) {
+                    item {
+                        Text(
+                            "No pickups at this stop.",
+                            color = Color.Gray,
+                            fontSize = 13.sp
+                        )
                     }
-                    HorizontalDivider(thickness = 4.dp)
+                } else {
+                    itemsIndexed(data.to_load.shipments) { _, shipment ->
+                        ShipmentActionCard(
+                            shipment = shipment,
+                            color = statusOrangeColor,
+                            label = "Pickup From",
+                            actionLabel = if (shipment.status == "In-Transit") "✓ Picked Up" else "Pickup",
+                            actionEnabled = shipment.status == "Assigned",
+                            onAction = { }
+                        )
+                    }
+                }
+                item {
+                    HorizontalDivider(
+                        thickness = 4.dp,
+                        modifier = Modifier.padding(vertical = 16.dp)
+                    )
+                }
 
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        if (data.to_drop.shipments.isEmpty()) {
-                            item {
-                                Text(
-                                    "No drop-offs at this stop.",
-                                    color = Color.Gray,
-                                    fontSize = 13.sp
-                                )
-                            }
-                        } else {
-                            itemsIndexed(data.to_drop.shipments) { _, shipment ->
-                                ShipmentActionCard(
-                                    shipment = shipment,
-                                    color = statusBlueColor,
-                                    label = "Deliver To",
-                                    actionLabel = if (shipment.status == "Completed") "✓ Delivered" else "Deliver",
-                                    actionEnabled = shipment.status == "In-Transit",
-                                    onAction = { }
-                                )
-                            }
-                        }
+                if (data.to_drop.shipments.isEmpty()) {
+                    item {
+                        Text(
+                            "No drop-offs at this stop.",
+                            color = Color.Gray,
+                            fontSize = 13.sp
+                        )
                     }
-                Spacer(modifier = Modifier.height(32.dp))
+                } else {
+                    itemsIndexed(data.to_drop.shipments) { _, shipment ->
+                        ShipmentActionCard(
+                            shipment = shipment,
+                            color = statusBlueColor,
+                            label = "Deliver To",
+                            actionLabel = if (shipment.status == "Completed") "✓ Delivered" else "Deliver",
+                            actionEnabled = shipment.status == "In-Transit",
+                            onAction = { }
+                        )
+                    }
+                }
+                item { Spacer(modifier = Modifier.height(32.dp)) }
             }
         }
     }
@@ -1868,7 +1876,7 @@ fun CustomerShipmentsDetailScreen(
     @Composable
     fun ProfileScreen(
         fullName: String = "",
-        rating: Float = 4.8f,
+        rating: Double = 4.8,
         numberOfReviews: Int = 0,
         isSwitchedToCustomer: Boolean = false,
         onYourInformationClick: () -> Unit = {},
@@ -1989,13 +1997,13 @@ fun CustomerShipmentsDetailScreen(
                         onYourInformationClick
                     )
                     ProfileMenuCard("Route Management", Icons.Default.Route, onActivateRouteClick)
-                    ProfileMenuCard("Settings & Security", Icons.Default.Settings, {})
+                    //ProfileMenuCard("Settings & Security", Icons.Default.Settings, {})
                     ProfileMenuCard("Reviews", Icons.Default.Star, onReviewsClick)
 
                     Spacer(modifier = Modifier.height(24.dp))
 
                     // Role Switch Card
-                    GlassCard {
+                    /*GlassCard {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.SwapHoriz, null, tint = statusBlueColor)
                             Spacer(modifier = Modifier.width(16.dp))
@@ -2008,7 +2016,7 @@ fun CustomerShipmentsDetailScreen(
                                 checked = isSwitchedToCustomer,
                                 onCheckedChange = { onSwitchRoleToggle(it) })
                         }
-                    }
+                    }*/
 
                     Spacer(modifier = Modifier.height(12.dp))
 
@@ -2532,7 +2540,9 @@ fun ActivateRouteScreen(
         onHistoryClick: () -> Unit = {},
         onChatClick: () -> Unit = {},
         onProfileClick: () -> Unit = {},
-        currentTab: DriverDestination = DriverDashboard()
+        currentTab: DriverDestination = DriverDashboard(),
+        driverViewModel: DriverViewModel,
+        canSetActive: Boolean
     ) {
         Scaffold(
             bottomBar = {
@@ -2678,11 +2688,15 @@ fun ActivateRouteScreen(
                             val endName = route.endPoint
                                 ?: route.checkpoints?.lastOrNull()?.name ?: "?"
                             val viaName = route.checkpoints?.getOrNull(1)?.name
+
+
                             PastRouteCard(
                                 label = "$startName → $endName",
                                 via = viaName?.let { "via $it" },
                                 onMakeActive = { onMakeActive(route) },
-                                onMakeNext = { onMakeNext(route) }
+                                onMakeNext = { onMakeNext(route) },
+                                hasActiveRoute = driverViewModel.activeRoute?.departureDate != null,
+                                canSetActive = canSetActive
                             )
                         }
                     }
@@ -2709,7 +2723,9 @@ fun ActivateRouteScreen(
         label: String,
         via: String?,
         onMakeActive: () -> Unit,
-        onMakeNext: () -> Unit
+        onMakeNext: () -> Unit,
+        hasActiveRoute: Boolean,
+        canSetActive: Boolean
     ) {
         GlassCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2742,8 +2758,18 @@ fun ActivateRouteScreen(
                     onClick = onMakeNext,
                     modifier = Modifier.weight(1f).height(40.dp),
                     shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, actionTealColor.copy(alpha = 0.4f))
+                    border = BorderStroke(1.dp, actionTealColor.copy(alpha = 0.4f)),
+                    enabled = hasActiveRoute,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.White,
+                        contentColor = Color.Black,
+                        // Set the background color when the button is disabled
+                        disabledContainerColor = Color.LightGray.copy(alpha = 0.5f),
+                        // Set the text/icon color when the button is disabled
+                        disabledContentColor = Color.Gray
+                    ),
                 ) {
+
                     Icon(
                         Icons.Default.Schedule,
                         contentDescription = null,
@@ -2757,7 +2783,15 @@ fun ActivateRouteScreen(
                     onClick = onMakeActive,
                     modifier = Modifier.weight(1f).height(40.dp),
                     shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = actionTealColor,
+                        contentColor = Color.White,
+                        // Set the background color when the button is disabled
+                        disabledContainerColor = Color.LightGray.copy(alpha = 0.5f),
+                        // Set the text/icon color when the button is disabled
+                        disabledContentColor = Color.Gray
+                    ),
+                    enabled = canSetActive
                 ) {
                     Icon(
                         Icons.Default.PlayCircle,
@@ -2841,6 +2875,7 @@ fun ActivateRouteScreen(
         }
     }
 
+@androidx.annotation.RequiresPermission(allOf = [android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION])
     @Composable
     fun CreateRouteStep1(
         routePoints: SnapshotStateList<GeoPoint>,

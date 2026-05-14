@@ -8,6 +8,8 @@ import android.graphics.Canvas
 import android.graphics.Matrix
 import android.location.Geocoder
 import android.os.Build
+import android.util.Log
+import android.view.MotionEvent
 import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import androidx.compose.runtime.Composable
@@ -18,7 +20,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -43,6 +47,9 @@ import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import java.util.Locale
 import androidx.core.graphics.toColorInt
 import com.example.cargoconnectapp.ui.models.viewmodels.DriverViewModel
+import org.osmdroid.events.MapListener
+import org.osmdroid.events.ScrollEvent
+import org.osmdroid.events.ZoomEvent
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
@@ -133,9 +140,39 @@ fun OSMContainer(
     // Whether an animation is currently in flight (prevents stacking)
     val animating = remember { mutableStateOf(false) }
 
-    // ── Effect 1: Redraw route, checkpoint markers, optional circle ───────────
-    LaunchedEffect(points, capturedUserLocation, radiusInMeters, circleCenter, isTrackingMode) {
+    var localInitialized by remember { mutableStateOf(false) }
+    val initialized = driverViewModel?.hasMapBeenInitialized ?: localInitialized
+    val currentCenter = driverViewModel?.lastMapCenter
+    val currentZoom = driverViewModel?.lastMapZoom ?: 15.0
 
+    DisposableEffect(mapView) {
+        val listener = object : MapListener {
+            override fun onScroll(event: ScrollEvent): Boolean {
+                if (mapView.isAttachedToWindow && !animating.value) {
+                    driverViewModel?.lastMapCenter = mapView.mapCenter as GeoPoint
+                }
+                return false
+            }
+            override fun onZoom(event: ZoomEvent): Boolean {
+                if (mapView.isAttachedToWindow && !animating.value) {
+                    driverViewModel?.lastMapZoom = mapView.zoomLevelDouble
+                }
+                return false
+            }
+        }
+        mapView.addMapListener(listener)
+        onDispose { mapView.removeMapListener(listener) }
+    }
+
+
+    // ── Effect 1: Redraw route, checkpoint markers, optional circle ───────────
+    LaunchedEffect(points.size, radiusInMeters, points.hashCode()) {
+
+        if (points.isEmpty()) {
+            mapView.overlays.removeAll { it is Polyline || it is Marker || it is Polygon }
+            mapView.invalidate()
+            return@LaunchedEffect
+        }
         // Remove previous route / checkpoint markers / circles (keep truck marker)
         mapView.overlays.removeAll { overlay ->
             overlay is Polyline ||
@@ -145,33 +182,66 @@ fun OSMContainer(
 
         if (points.isNotEmpty()) {
             if (isTrackingMode) {
+                if (points.size >= 2) {
+                    if (mapView.isAttachedToWindow) {
+                        drawFullRoute(context, mapView, points)
+                    }
+
+                    if (truckAtIndex >= 0 && truckAtIndex < points.size) {
+                        val pos = points[truckAtIndex]
+                        val bearing = bearingBetween(pos, points.getOrNull(truckAtIndex + 1) ?: pos)
+
+                        if (!animating.value) {
+                            placeTruckAt(context, mapView, truckMarker, pos, bearing)
+                        }
+                    }
+                }
                 // ── Tracking mode: draw checkpoint pins only; no user-location route
                 points.forEachIndexed { index, geoPoint ->
                     val marker = Marker(mapView).apply {
-                        position  = geoPoint
-                        icon      = ContextCompat.getDrawable(context, R.drawable.ic_red_pin)
+                        position = geoPoint
+                        icon = ContextCompat.getDrawable(context, R.drawable.ic_red_pin)
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                        title     = when (index) {
-                            0               -> "Start"
+                        title = when (index) {
+                            0 -> "Start"
                             points.lastIndex -> "End"
-                            else            -> "Stop $index"
+                            else -> "Stop $index"
                         }
                     }
-                    mapView.overlays.add(marker)
-                }
-
-                // Draw the full checkpoint-to-checkpoint route
-                if (points.size >= 2) {
-                    drawFullRoute(context, mapView, points)
+                    mapView.overlays.add(marker) // adds above route
                 }
 
                 // Zoom to fit entire route
-                zoomToFitPoints(mapView, points)
+                if (!initialized && currentCenter == null) {
+                    zoomToFitPoints(mapView, points)
+                    if (driverViewModel != null) {
+                        driverViewModel.hasMapBeenInitialized = true
+                    } else {
+                        localInitialized = true
+                    }
+
+                    mapView.post {
+                        if (mapView.isAttachedToWindow) {
+                            driverViewModel?.lastMapCenter = mapView.mapCenter as GeoPoint
+                            driverViewModel?.lastMapZoom = mapView.zoomLevelDouble
+                        }
+                    }
+                } else if (currentCenter != null) {
+                    mapView.controller.setCenter(currentCenter)
+                    mapView.controller.setZoom(currentZoom)
+                }
+                truckMarker.value?.let { truck ->
+                    mapView.overlays.remove(truck)
+                    mapView.overlays.add(truck) // move to top
+                }
 
                 // Place truck at resting position if no animation event yet
                 if (truckAtIndex >= 0 && truckAtIndex < points.size && !animating.value) {
                     val pos = points[truckAtIndex]
-                    placeTruckAt(context, mapView, truckMarker, pos, bearingBetween(pos, points.getOrNull(truckAtIndex + 1) ?: pos))
+                    val bearing = bearingBetween(pos, points.getOrNull(truckAtIndex + 1) ?: pos)
+                    // Small delay to let drawFullRoute's coroutine finish adding to overlays
+                    delay(500)
+                    placeTruckAt(context, mapView, truckMarker, pos, bearing)
                 }
 
             } else {
@@ -211,7 +281,6 @@ fun OSMContainer(
             polygon.outlinePaint.strokeWidth = 2f
             mapView.overlays.add(polygon)
         }
-
         mapView.invalidate()
     }
 
@@ -238,20 +307,23 @@ fun OSMContainer(
     // ── Effect 4: Truck animation (tracking mode only) ────────────────────────
     LaunchedEffect(truckAnimationEvent) {
         if (!isTrackingMode || truckAnimationEvent == null) return@LaunchedEffect
-        if (animating.value) return@LaunchedEffect          // skip if already running
+        if (animating.value) return@LaunchedEffect
+        if (!initialized) return@LaunchedEffect
 
         animating.value = true
 
-        val from     = truckAnimationEvent.from
-        val to       = truckAnimationEvent.to
+        val from = truckAnimationEvent.from
+        val to = truckAnimationEvent.to
         val duration = truckAnimationEvent.durationMs
-        val steps    = 120                                   // animation frame count
-        val delay    = duration / steps
+        val steps = 60
+        val delay = duration / steps
 
-        // Fetch the real road path so the truck follows the road
+        // Capture points NOW before they can be cleared by confirmCheckpoint
+        val capturedPoints = points.toList()
+
         val roadPoints: List<GeoPoint> = withContext(Dispatchers.IO) {
             try {
-                val rm  = OSRMRoadManager(context, context.packageName)
+                val rm = OSRMRoadManager(context, context.packageName)
                 val road = rm.getRoad(arrayListOf(from, to))
                 road.mRouteHigh.ifEmpty { listOf(from, to) }
             } catch (e: Exception) {
@@ -259,50 +331,56 @@ fun OSMContainer(
             }
         }
 
-        // Zoom + rotate the map toward the destination (navigation feel)
-        //val bearing = bearingBetween(from, to)
-        //mapView.mapOrientation = -bearing.toFloat()         // rotate map so "up" is forward
         mapView.controller.setZoom(16.0)
-        mapView.controller.animateTo(from)
+        mapView.controller.setCenter(from)
 
-        // Animate truck along road path
         val totalPoints = roadPoints.size
         for (step in 0..steps) {
-            val fraction  = step.toFloat() / steps
+            val fraction = step.toFloat() / steps
             val pathIndex = (fraction * (totalPoints - 1)).toInt().coerceIn(0, totalPoints - 2)
-            val segFrac   = fraction * (totalPoints - 1) - pathIndex
-            val current   = interpolate(roadPoints[pathIndex], roadPoints[pathIndex + 1], segFrac.toDouble())
-            val nextPt    = if (pathIndex + 1 < totalPoints) roadPoints[pathIndex + 1] else to
+            val segFrac = fraction * (totalPoints - 1) - pathIndex
+            val current = interpolate(roadPoints[pathIndex], roadPoints[pathIndex + 1], segFrac.toDouble())
+            val nextPt = if (pathIndex + 1 < totalPoints) roadPoints[pathIndex + 1] else to
             val currentBearing = bearingBetween(current, nextPt)
 
             withContext(Dispatchers.Main) {
                 placeTruckAt(context, mapView, truckMarker, current, currentBearing)
-
                 if (step % 30 == 0) {
                     driverViewModel?.updateDriverLocation(driverId, current.latitude, current.longitude)
                 }
-
-                mapView.controller.animateTo(current)
-
-                //mapView.mapOrientation = -currentBearing.toFloat()
+                mapView.controller.setZoom(16.0)
+                mapView.controller.setCenter(current)
             }
             delay(delay)
         }
 
-        // Snap to final position, reset map rotation
+        // Use capturedPoints here — safe even if activeRoute was cleared
         withContext(Dispatchers.Main) {
             val finalBearing = bearingBetween(
-                roadPoints.getOrElse(roadPoints.size - 2) { from },
-                to
+                roadPoints.getOrElse(roadPoints.size - 2) { from }, to
             )
             placeTruckAt(context, mapView, truckMarker, to, finalBearing)
+            mapView.mapOrientation = 0f
+            delay(800)
 
-            mapView.mapOrientation = 0f                     // restore north-up after animation
-            mapView.controller.setZoom(15.0)
-            zoomToFitPoints(mapView, points)
+            driverViewModel?.lastMapCenter = to
+            driverViewModel?.lastMapZoom = 16.0
+
+            // Only zoom if we still have points — use captured snapshot
+            /*if (capturedPoints.size >= 2) {
+                zoomToFitPoints(mapView, capturedPoints)
+            }*/
         }
 
         animating.value = false
+
+        // Fire confirm AFTER all map operations are done
+        withContext(Dispatchers.Main) {
+            driverViewModel?.isTruckAnimating = false
+            val action = driverViewModel?.pendingConfirmAction
+            driverViewModel?.pendingConfirmAction = null  // clear BEFORE invoking
+            action?.invoke()  // this may clear activeRoute/points — safe now
+        }
     }
 
     // ── AndroidView factory ───────────────────────────────────────────────────
@@ -310,26 +388,53 @@ fun OSMContainer(
         factory = {
             mapView.apply {
                 overlays.add(MapEventsOverlay(object : MapEventsReceiver {
-                    override fun singleTapConfirmedHelper(p: GeoPoint): Boolean { onMapClick(p); return true }
-                    override fun longPressHelper(p: GeoPoint): Boolean { onMapLongClick(p); return true }
+                    override fun singleTapConfirmedHelper(p: GeoPoint): Boolean {
+                        onMapClick(p); return true
+                    }
+
+                    override fun longPressHelper(p: GeoPoint): Boolean {
+                        onMapLongClick(p); return true
+                    }
                 }))
 
                 if (!isTrackingMode) {
-                    val locationOverlay = MyLocationNewOverlay(GpsMyLocationProvider(context), this).apply {
-                        enableMyLocation()
-                        runOnFirstFix {
-                            val location = myLocation
-                            capturedUserLocation = location
-                            (context as? android.app.Activity)?.runOnUiThread {
+                    val locationOverlay =
+                        MyLocationNewOverlay(GpsMyLocationProvider(context), this).apply {
+                            enableMyLocation()
+                            runOnFirstFix {
+                                val location = myLocation
                                 capturedUserLocation = location
+                                (context as? android.app.Activity)?.runOnUiThread {
+                                    capturedUserLocation = location
+                                }
                             }
                         }
-                    }
                     overlays.add(locationOverlay)
+                }
+
+                setOnTouchListener { v, event ->
+                    when (event.action) {
+                        MotionEvent.ACTION_DOWN,
+                        MotionEvent.ACTION_MOVE -> v.parent.requestDisallowInterceptTouchEvent(true)
+
+                        MotionEvent.ACTION_UP -> v.parent.requestDisallowInterceptTouchEvent(false)
+                    }
+                    v.performClick()
+                    false
                 }
             }
         },
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInteropFilter { false },
+        update = { view ->
+            // This runs whenever points or ViewModel state changes.
+            // If initialized and not currently animating, snap to the saved state.
+            if (initialized && currentCenter != null && !animating.value) {
+                view.controller.setCenter(currentCenter)
+                view.controller.setZoom(currentZoom)
+            }
+        },
     )
 }
 
@@ -356,6 +461,9 @@ private fun placeTruckAt(
     if (existingMarker != null) {
         existingMarker.position = position
         existingMarker.icon     = icon
+
+        mapView.overlays.remove(existingMarker)
+        mapView.overlays.add(existingMarker)
     } else {
         val marker = Marker(mapView).apply {
             id        = "truck_marker"
@@ -411,16 +519,35 @@ private fun zoomToFitPoints(mapView: MapView, points: List<GeoPoint>) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 fun drawFullRoute(context: Context, mapView: MapView, points: List<GeoPoint>) {
+    if (mapView == null || points.size < 2) return
+
+    // 1. Create Polyline IMMEDIATELY on Main thread to avoid Repository NPE
+    val polyline = Polyline(mapView).apply {
+        infoWindow = null // Disable InfoWindow to skip the internal getRepository() call
+        outlinePaint.color = "#6236B5".toColorInt()
+        outlinePaint.strokeWidth = 12f
+        outlinePaint.isAntiAlias = true
+        outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
+        outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+    }
+
     val roadManager: RoadManager = OSRMRoadManager(context, context.packageName)
+
+    // 2. Use a specific CoroutineScope that won't leak
     CoroutineScope(Dispatchers.IO).launch {
-        val waypoints = ArrayList(points)
-        val road      = roadManager.getRoad(waypoints)
-        withContext(Dispatchers.Main) {
-            val roadOverlay = RoadManager.buildRoadOverlay(road)
-            roadOverlay.outlinePaint.color       = "#6236B5".toColorInt()
-            roadOverlay.outlinePaint.strokeWidth  = 12f
-            mapView.overlays.add(roadOverlay)
-            mapView.invalidate()
+        try {
+            val road = roadManager.getRoad(ArrayList(points))
+
+            withContext(Dispatchers.Main) {
+                // Verify MapView is still valid/attached before updating
+                if (road != null && road.mRouteHigh.isNotEmpty() && mapView.isAttachedToWindow) {
+                    polyline.setPoints(road.mRouteHigh)
+                    mapView.overlays.add(0, polyline)
+                    mapView.invalidate()
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MAP_DRAW", "Failed to draw route", e)
         }
     }
 }

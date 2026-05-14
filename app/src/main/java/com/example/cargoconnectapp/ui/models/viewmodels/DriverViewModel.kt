@@ -31,7 +31,18 @@ class DriverViewModel : ViewModel() {
 
     // ── State ─────────────────────────────────────────────────────────────────
 
+    // In DriverViewModel.kt
+    var hasMapBeenInitialized by mutableStateOf(false)
+    var lastMapCenter by mutableStateOf<GeoPoint?>(null)
+    var lastMapZoom by mutableDoubleStateOf(15.0)
+
     var currentLocation by mutableStateOf(0.0 to 0.0)
+
+    var routeTrackingPoints = mutableStateListOf<GeoPoint>()
+        private set
+
+    var isTruckAnimating by mutableStateOf(false)
+    var pendingConfirmAction: (() -> Unit)? = null
 
     var pendingTruckAnimation: Pair<Int, Int>? = null
 
@@ -161,37 +172,73 @@ class DriverViewModel : ViewModel() {
     }
 
     fun clearAllData() {
+        // --- Truck & Capacity State ---
         truckInfo = null
-        currentCapacity = 0
-        totalCapacity = 0
-        activeRoute = null
-        nextRoute = null
-        pastRoutes = emptyList()
         currentCapacity = 0
         totalCapacity = 0
         totalDimensions = Dimensions()
         currentDimensions = Dimensions()
+
+        // --- Route & Tracking State ---
+        activeRoute = null
+        nextRoute = null
+        pastRoutes = emptyList()
+        routeTrackingPoints.clear()
         totalStops = 0
         completedStops = 0
         distances.clear()
-        driverRequests = null
+        previewedPoints = emptyList()
+        isStartCheckpoint = false
+        estimatedArrivalForDelay = null
         templateRouteForUpdate = null
-        clearPlannedRoute()
-        routeActivationTarget = RouteTarget.ACTIVE
-        errorMessage = null
-        successMessage = null
+
+        // --- Map & Animation State ---
+        hasMapBeenInitialized = false
+        lastMapCenter = null
+        lastMapZoom = 15.0
+        currentLocation = 0.0 to 0.0
+        isTruckAnimating = false
+        pendingTruckAnimation = null
+        pendingConfirmAction = null
+
+        // --- Request & Booking State ---
+        driverRequests = null
         selectedRequest = null
         pendingBookings = emptyList()
         inTransitBookings = emptyList()
         completedBookings = emptyList()
         canceledBookings = emptyList()
         selectedBooking = null
+
+        // --- Checkpoint & Shipment Detail State ---
         checkpointShipments = null
-        notifications = emptyList()
         selectedCheckpointId = 0
+        routeCustomerDetail = null
+
+        // --- Chat System State ---
+        chatThreads = emptyList()
+        selectedThreadId = null
+        selectedThreadName = ""
+        chatMessages = emptyList()
+
+        // --- Review & Activity State ---
+        notifications = emptyList()
         reviews = emptyList()
         averageRating = 0.0
         totalReviews = 0
+        showReviewDialog = false
+        pendingReviewBookingId = null
+        pendingReviewTripId = null
+        reviewTargetUserId = null
+
+        // --- General UI State ---
+        isLoading = false
+        errorMessage = null
+        successMessage = null
+
+        // --- Temporary Route Planning ---
+        clearPlannedRoute()
+        routeActivationTarget = RouteTarget.ACTIVE
     }
 
     // ── Fetch functions ───────────────────────────────────────────────────────
@@ -249,6 +296,23 @@ class DriverViewModel : ViewModel() {
             }
             catch(e: Exception) {
                 Log.e("LOCATION UPDATE FAILED", "FAIL. ${e.message}")
+            }
+        }
+    }
+    fun fetchTrackingPath(driverId: Int) {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.instance.trackDriverRoute(driverId)
+                if (response.isSuccessful) {
+                    val points = response.body()?.map {
+                        GeoPoint(it.latitude, it.longitude)
+                    } ?: emptyList()
+
+                    routeTrackingPoints.clear()
+                    routeTrackingPoints.addAll(points)
+                }
+            } catch (e: Exception) {
+                Log.e("DriverViewModel", "Failed to fetch tracking path", e)
             }
         }
     }

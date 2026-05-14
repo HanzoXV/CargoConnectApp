@@ -134,7 +134,7 @@ fun NavGraphBuilder.customerGraph(
     }
 
     // ── NEW SHIPMENT ──
-    composable<CustomerNewShipment> {
+    composable<CustomerNewShipment> @androidx.annotation.RequiresPermission(allOf = [android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION]) {
         val page = it.toRoute<CustomerNewShipment>().page
         val args = sharedArgs()
         when (page) {
@@ -562,10 +562,21 @@ fun NavGraphBuilder.customerGraph(
             CustomerProfilePage.EditInformation,
             CustomerProfilePage.AllReviews -> {
                 LaunchedEffect(Unit) {
-                    customerViewModel.fetchRequestHistory(session.roleBasedId)
+                    customerViewModel.fetchReviews(session.userId)
+                    customerViewModel.fetchAverageRating(session.userId)
                 }
                 CustomerReviewsScreen(
-
+                    reviews = customerViewModel.reviews,
+                    averageRating = customerViewModel.averageRating,
+                    totalReviews = customerViewModel.totalReviews,
+                    isLoading = customerViewModel.isLoading,
+                    onBack = { navController.popBackStack() },
+                    currentTab = args.tab,
+                    onHomeClick = args.onHomeClick,
+                    onOrdersClick = args.onOrdersClick,
+                    onHistoryClick = args.onHistoryClick,
+                    onChatClick = args.onChatClick,
+                    onProfileClick = args.onProfileClick
                 )
             }
         }

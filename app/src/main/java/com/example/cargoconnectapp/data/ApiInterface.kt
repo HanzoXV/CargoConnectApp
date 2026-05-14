@@ -55,8 +55,18 @@ interface ApiInterface {
     ): Response<DriverRequestsResponse>
 
     @POST("api/drivers/location")
-    suspend fun updateDriverLocation(request: DriverLocationRequestDto
+    suspend fun updateDriverLocation(@Body request: DriverLocationRequestDto
     ): Response<DriverLocationRequestDto>
+
+    @GET("api/driver/track-route-points/{driverId}")
+    suspend fun trackDriverRoute(
+        @Path("driverId") driverId: Int
+    ): Response<List<RoutePointDto>>
+
+    @GET("api/drivers/location/{driverId}")
+    suspend fun getDriverLocation(
+        @Path("driverId") driverId: Int
+    ): Response<DriverLocationResponseDto>
 
     // ── Shipments ─────────────────────────────────────────────────────────────
     @POST("api/shipments/draft/{customerId}")

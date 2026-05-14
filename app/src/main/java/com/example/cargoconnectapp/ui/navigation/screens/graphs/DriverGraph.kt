@@ -10,7 +10,6 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
 import com.example.cargoconnectapp.ui.models.datamodels.CreateRouteRequest
-import com.example.cargoconnectapp.ui.models.datamodels.RouteCheckpointRequest
 import com.example.cargoconnectapp.ui.models.datamodels.RouteData
 import com.example.cargoconnectapp.ui.models.destinations.*
 import com.example.cargoconnectapp.ui.models.viewmodels.AuthViewModel
@@ -18,7 +17,6 @@ import com.example.cargoconnectapp.ui.models.viewmodels.DriverViewModel
 import com.example.cargoconnectapp.ui.models.viewmodels.RouteTarget
 import com.example.cargoconnectapp.ui.models.viewmodels.UserSessionViewModel
 import com.example.cargoconnectapp.ui.navigation.screens.*
-import com.example.cargoconnectapp.ui.models.map.getAddressFromGeoPoint
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -81,7 +79,7 @@ fun NavGraphBuilder.driverGraph(
                         val checkpoint = driverViewModel.activeRoute?.checkpoints?.getOrNull(index)
                         if (checkpoint != null) {
                             if (index == 0) {
-                                // First checkpoint - show pickups before starting
+                                driverViewModel.isStartCheckpoint = true
                                 driverViewModel.fetchShipmentsAtCheckpoint(
                                     checkpoint.checkpointId ?: 0,
                                     session.roleBasedId
@@ -89,6 +87,8 @@ fun NavGraphBuilder.driverGraph(
                                     navController.navigate(DriverDashboard(DriverDashboardPage.ConfirmDelivery))
                                 }
                             } else {
+                                driverViewModel.isStartCheckpoint = false
+
                                 driverViewModel.fetchShipmentsAtCheckpoint(
                                     checkpoint.checkpointId ?: 0, session.roleBasedId
                                 ) {
@@ -167,16 +167,19 @@ fun NavGraphBuilder.driverGraph(
                         },
                         onReviewDismiss = { driverViewModel.dismissReview() },
                         onConfirm = {
+                            Log.d("CONFIRM", "onConfirm fired. isStartCheckpoint=${driverViewModel.isStartCheckpoint}")
                             isNavigating.value = true
                             if (driverViewModel.isStartCheckpoint) {
-                                // fromIndex = 0 (truck appears at start), toIndex = 0 (stays at start, no movement)
-                                // Actually for first checkpoint, truck just snaps to index 0
+                                Log.d("CONFIRM", "Taking start branch. checkpointId=${data.checkpoint_id}")
                                 driverViewModel.pendingTruckAnimation = Pair(0, 0)
-                                driverViewModel.startTrip(data.checkpoint_id, session.roleBasedId)
-                                navController.navigate(DriverDashboard(DriverDashboardPage.TripInfo)) {
-                                    popUpTo(DriverDashboard(DriverDashboardPage.ConfirmDelivery)) { inclusive = true }
+                                driverViewModel.startTrip(data.checkpoint_id, session.roleBasedId) {
+                                    Log.d("CONFIRM", "startTrip callback fired, navigating")
+                                    navController.navigate(DriverDashboard(DriverDashboardPage.TripInfo)) {
+                                        popUpTo(DriverDashboard(DriverDashboardPage.ConfirmDelivery)) { inclusive = true }
+                                    }
                                 }
                             } else {
+                                Log.d("CONFIRM", "Taking else branch")
                                 val confirmedIndex = driverViewModel.activeRoute?.checkpoints
                                     ?.sortedBy { it.sequenceNo }
                                     ?.indexOfFirst { it.checkpointId == data.checkpoint_id } ?: -1
@@ -185,10 +188,18 @@ fun NavGraphBuilder.driverGraph(
                                     driverViewModel.pendingTruckAnimation = Pair(confirmedIndex - 1, confirmedIndex)
                                 }
 
-                                driverViewModel.confirmCheckpoint(data.checkpoint_id, session.roleBasedId) {
-                                    navController.navigate(DriverDashboard(DriverDashboardPage.TripInfo)) {
-                                        popUpTo(DriverDashboard(DriverDashboardPage.ConfirmDelivery)) { inclusive = true }
+                                // Store the API call, run after animation finishes
+                                driverViewModel.pendingConfirmAction = {
+                                    driverViewModel.confirmCheckpoint(data.checkpoint_id, session.roleBasedId) {
+                                        navController.navigate(DriverDashboard(DriverDashboardPage.TripInfo)) {
+                                            popUpTo(DriverDashboard(DriverDashboardPage.ConfirmDelivery)) { inclusive = true }
+                                        }
                                     }
+                                }
+
+                                // Navigate back to see the animation
+                                navController.navigate(DriverDashboard(DriverDashboardPage.TripInfo)) {
+                                    popUpTo(DriverDashboard(DriverDashboardPage.ConfirmDelivery)) { inclusive = true }
                                 }
                             }
                         },
@@ -444,9 +455,16 @@ fun NavGraphBuilder.driverGraph(
             val page = backStackEntry.toRoute<DriverProfileScreen>().page
             val context = LocalContext.current
 
+            LaunchedEffect(Unit) {
+                driverViewModel.fetchReviews(session.userId)
+                driverViewModel.fetchAverageRating(session.userId)
+            }
+
             when (page) {
                 DriverProfilePage.Main -> {
                     ProfileScreen(
+                        rating = driverViewModel.averageRating,
+                        numberOfReviews = driverViewModel.reviews.size,
                         fullName = session.userFullName,
                         currentTab = session.currentDriverTab,
                         onHomeClick = { navController.navigateTab(DriverDashboard()) },
@@ -469,7 +487,18 @@ fun NavGraphBuilder.driverGraph(
                                 )
                             )
                         },
-                        onLogoutClick = { authViewModel.logout() },
+                        onLogoutClick = { authViewModel.logout()
+                            driverViewModel.clearAllData()
+
+                            // 2. Clear navigation stack and move to Login
+                            navController.navigate(Login) {
+                                // Pop up to the very beginning of the navigation host
+                                popUpTo(0) {
+                                    inclusive = true
+                                }
+                                launchSingleTop = true
+                            }
+                                        },
                         session = session
                     )
                 }
@@ -479,7 +508,7 @@ fun NavGraphBuilder.driverGraph(
                         fullName = session.userFullName,
                         phone = session.userContact,
                         email = session.userEmail,
-                        cnic = "Not specified",
+                        cnic = "NEED TO ADD IN SESSION",
                         licenseNo = session.userLicenseNo,
                         currentTab = session.currentDriverTab,
                         onBack = { navController.popBackStack() },
@@ -497,6 +526,12 @@ fun NavGraphBuilder.driverGraph(
                         driverViewModel.fetchNextRoute(session.roleBasedId)
                         driverViewModel.fetchAllRoutes(session.roleBasedId)
                     }
+
+                    Log.e("ActivateRouteScreen", "ALMOST. ACTIVE: ${driverViewModel.activeRoute?.checkpoints?.getOrNull(1)?.name} - NEXT: ${driverViewModel.nextRoute?.checkpoints?.getOrNull(1)?.name} ")
+
+                    val firstReached = driverViewModel.activeRoute?.checkpoints?.getOrNull(0)?.reached == true
+
+                    val canSetActive = !firstReached
 
                     ActivateRouteScreen(
                         activeRouteLabel = formatRouteLabel(driverViewModel.activeRoute),
@@ -537,7 +572,9 @@ fun NavGraphBuilder.driverGraph(
                         onOrdersClick  = { navController.navigateTab(DriverShipmentRequest()) },
                         onHistoryClick = { navController.navigateTab(DriverDeliveries()) },
                         onChatClick    = { navController.navigateTab(DriverChat()) },
-                        onProfileClick = { navController.navigateTab(DriverProfileScreen()) }
+                        onProfileClick = { navController.navigateTab(DriverProfileScreen()) },
+                        driverViewModel = driverViewModel,
+                        canSetActive = canSetActive
                     )
                 }
 
@@ -619,6 +656,7 @@ fun NavGraphBuilder.driverGraph(
                         onNext = { dep, arr ->
                             driverViewModel.plannedDepartureDate = dep
                             driverViewModel.plannedArrivalDate = arr
+                            driverViewModel.updatePreviewedPoints(emptyList())
                             navController.navigate(DriverProfileScreen(DriverProfilePage.EditInformation))
                         },
                         onBack = { navController.popBackStack() },
