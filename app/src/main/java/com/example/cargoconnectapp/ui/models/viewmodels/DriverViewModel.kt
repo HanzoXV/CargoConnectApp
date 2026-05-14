@@ -2,6 +2,7 @@ package com.example.cargoconnectapp.ui.models.viewmodels
 
 import android.os.Build
 import android.util.Log
+import kotlin.math.*
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
@@ -24,6 +25,9 @@ import org.osmdroid.util.GeoPoint
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import kotlin.math.cos
+import kotlin.math.pow
+import kotlin.math.sin
 
 enum class RouteTarget { ACTIVE, NEXT }
 
@@ -506,7 +510,7 @@ class DriverViewModel : ViewModel() {
                     val routeId = response.body()?.routeId ?: -1
                     Log.d("DriverViewModel", "Route saved. ID: $routeId")
 
-                    if (routeId != -1) {
+                    /*if (routeId != -1) {
                         if (target == RouteTarget.ACTIVE) {
                             Log.d("DriverViewModel", "Activating route $routeId")
                             RetrofitClient.instance.activateRoute(routeId)
@@ -514,7 +518,7 @@ class DriverViewModel : ViewModel() {
                             Log.d("DriverViewModel", "Scheduling next route $routeId")
                             RetrofitClient.instance.scheduleNextRoute(routeId)
                         }
-                    }
+                    }*/
 
                     onComplete()             // Navigate FIRST
                     clearPlannedRoute()      // Then clean up

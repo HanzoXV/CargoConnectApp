@@ -738,7 +738,7 @@ fun NavGraphBuilder.driverGraph(
                                     arrivalDate   = driverViewModel.plannedArrivalDate
                                         ?.format(formatter) ?: "",
                                     baseFare      = fare,
-                                    activateNow   = false,
+                                    activateNow   = (driverViewModel.routeActivationTarget == RouteTarget.ACTIVE),
                                     isFragile     = driverViewModel.plannedIsFragile,
                                     isLiquid      = driverViewModel.plannedIsLiquid,
                                     isFlammable   = driverViewModel.plannedIsFlammable,

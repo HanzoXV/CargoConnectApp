@@ -1146,7 +1146,7 @@ fun EnhancedNotificationCard(message: String, time: String, isUnread: Boolean) {
     }
 }
 @Composable
-fun CheckpointTimeItem(point: RouteCheckpointRequest, onTimeClick: () -> Unit) {
+fun CheckpointTimeItem(point: RouteCheckpointRequest, onTimeClick: () -> Unit, allowChange: Boolean) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -1169,8 +1169,8 @@ fun CheckpointTimeItem(point: RouteCheckpointRequest, onTimeClick: () -> Unit) {
                         ?.substringAfter("T")
                         ?.substringBeforeLast(":")
                         ?: "No time"
-                    Text(datePart, color = actionTealColor, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                    Text(timePart, color = actionTealColor, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(datePart, color = if(allowChange) actionTealColor else Color.Gray, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(timePart, color = if(allowChange) actionTealColor else Color.Gray, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
             }
         }

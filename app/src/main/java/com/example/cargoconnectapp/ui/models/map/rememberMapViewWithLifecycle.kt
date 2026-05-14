@@ -52,7 +52,9 @@ import org.osmdroid.events.ScrollEvent
 import org.osmdroid.events.ZoomEvent
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.pow
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Data class to trigger a truck animation from the dashboard
@@ -145,6 +147,7 @@ fun OSMContainer(
     val currentCenter = driverViewModel?.lastMapCenter
     val currentZoom = driverViewModel?.lastMapZoom ?: 15.0
 
+
     DisposableEffect(mapView) {
         val listener = object : MapListener {
             override fun onScroll(event: ScrollEvent): Boolean {
@@ -166,7 +169,7 @@ fun OSMContainer(
 
 
     // ── Effect 1: Redraw route, checkpoint markers, optional circle ───────────
-    LaunchedEffect(points.size, radiusInMeters, points.hashCode()) {
+    LaunchedEffect(points.size, radiusInMeters, points.hashCode(), truckAtIndex) {
 
         if (points.isEmpty()) {
             mapView.overlays.removeAll { it is Polyline || it is Marker || it is Polygon }
@@ -208,7 +211,11 @@ fun OSMContainer(
                             else -> "Stop $index"
                         }
                     }
-                    mapView.overlays.add(marker) // adds above route
+                    mapView.overlays.add(marker)
+                    truckMarker.value?.let { truck ->
+                        mapView.overlays.remove(truck)
+                        mapView.overlays.add(truck) // move to top
+                    }// adds above route
                 }
 
                 // Zoom to fit entire route
@@ -235,12 +242,15 @@ fun OSMContainer(
                     mapView.overlays.add(truck) // move to top
                 }
 
-                // Place truck at resting position if no animation event yet
+                // If we have a valid index and we aren't currently animating, show the truck
                 if (truckAtIndex >= 0 && truckAtIndex < points.size && !animating.value) {
                     val pos = points[truckAtIndex]
-                    val bearing = bearingBetween(pos, points.getOrNull(truckAtIndex + 1) ?: pos)
-                    // Small delay to let drawFullRoute's coroutine finish adding to overlays
-                    delay(500)
+                    // Calculate bearing toward the NEXT stop so the truck faces the right way
+                    val nextPos = points.getOrNull(truckAtIndex + 1) ?: pos
+                    val bearing = bearingBetween(pos, nextPos)
+
+                    // Small delay to ensure polyline overlays are ready so truck stays on top
+                    delay(100)
                     placeTruckAt(context, mapView, truckMarker, pos, bearing)
                 }
 
@@ -285,12 +295,14 @@ fun OSMContainer(
     }
 
     // ── Effect 2: Distances (non-tracking only) ───────────────────────────────
-    LaunchedEffect(capturedUserLocation, points) {
-        if (!isTrackingMode) {
-            capturedUserLocation?.let { loc ->
-                if (points.isNotEmpty()) {
-                    calculateDistancesFromUser(context, loc, points, onDistancesCalculated)
-                }
+    LaunchedEffect(points, truckAtIndex) {
+        if (isTrackingMode && points.isNotEmpty()) {
+            //truckAtIndex If animating, we could pass the current interpolated point.
+            // For now, let's use the stop the truck is currently at:
+            val currentTruckPos = if (truckAtIndex >= 0) points[truckAtIndex] else null
+
+            currentTruckPos?.let { pos ->
+                updateDistancesLocally(pos, points, onDistancesCalculated)
             }
         }
     }
@@ -345,7 +357,9 @@ fun OSMContainer(
 
             withContext(Dispatchers.Main) {
                 placeTruckAt(context, mapView, truckMarker, current, currentBearing)
-                if (step % 30 == 0) {
+
+                if (step % 10 == 0) {
+                    updateDistancesLocally(current, points, onDistancesCalculated)
                     driverViewModel?.updateDriverLocation(driverId, current.latitude, current.longitude)
                 }
                 mapView.controller.setZoom(16.0)
@@ -588,4 +602,46 @@ fun getAddressFromGeoPoint(context: Context, geoPoint: GeoPoint): String {
             }
         } else "Location Not Found"
     } catch (e: Exception) { "Service Unavailable" }
+}
+fun calculateDistancesFromTruck(
+    context: Context,
+    truckLocation: GeoPoint,
+    points: List<GeoPoint>,
+    onDistancesCalculated: (List<Double>) -> Unit
+) {
+    val roadManager: RoadManager = OSRMRoadManager(context, context.packageName)
+    CoroutineScope(Dispatchers.IO).launch {
+        val distances = points.map { stop ->
+            val waypoints = arrayListOf(truckLocation, stop)
+            val road = roadManager.getRoad(waypoints)
+            // road.mLength is in KM for OSRM
+            road.mLength
+        }
+        withContext(Dispatchers.Main) { onDistancesCalculated(distances) }
+    }
+}
+fun calculateHaversine(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+    val r = 6371.0 // Earth's radius in kilometers
+    val dLat = Math.toRadians(lat2 - lat1)
+    val dLon = Math.toRadians(lon2 - lon1)
+    val a = sin(dLat / 2).pow(2) +
+            cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
+            sin(dLon / 2).pow(2)
+    val c = 2 * atan2(sqrt(a), sqrt(1 - a))
+    return r * c
+}
+fun updateDistancesLocally(
+    truckLocation: GeoPoint,
+    points: List<GeoPoint>,
+    onDistancesCalculated: (List<Double>) -> Unit
+) {
+    val distances = points.map { stop ->
+        calculateHaversine(
+            truckLocation.latitude,
+            truckLocation.longitude,
+            stop.latitude,
+            stop.longitude
+        )
+    }
+    onDistancesCalculated(distances)
 }

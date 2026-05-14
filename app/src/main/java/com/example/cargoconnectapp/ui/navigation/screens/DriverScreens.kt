@@ -262,6 +262,7 @@ fun DriverDashboardScreen(
             driverViewModel.fetchTruckInfo(driverId)
         }
     }
+    val currentTruckIndex = checkpoints.indexOfLast { it.reached == true }
 
     val tripStarted = activeRoute?.checkpoints?.any { it.reached == true } == true
     val nextCheckpointData = checkpoints.firstOrNull { it.reached != true }
@@ -380,7 +381,7 @@ fun DriverDashboardScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("Itinerary", fontWeight = FontWeight.Bold, color = textThemeColor)
+                                Text("Map", fontWeight = FontWeight.Bold, color = textThemeColor)
                                 Icon(Icons.Default.Map, contentDescription = null, tint = actionTealColor, modifier = Modifier.size(20.dp))
                             }
                             Spacer(modifier = Modifier.height(16.dp))
@@ -396,7 +397,9 @@ fun DriverDashboardScreen(
                             ) {
 
                                 if (geoPoints.isEmpty()) {
-                                    Box(modifier = Modifier.fillMaxSize().background(Color.Gray.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
+                                    Box(modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color.Gray.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
                                         Text("No active route found", color = Color.Gray)
                                     }
                                 } else {
@@ -407,7 +410,7 @@ fun DriverDashboardScreen(
                                         onMapLongClick       = {},
                                         isNavigation         = false,          // turn off the old navigation mode
                                         isTrackingMode       = true,           // ← NEW
-                                        truckAtIndex         = truckAtIndex,   // ← NEW
+                                        truckAtIndex         = currentTruckIndex, //← NEW
                                         truckAnimationEvent  = truckAnimationEvent,  // ← NEW,
                                         driverViewModel = driverViewModel,
                                         driverId = driverId
@@ -420,9 +423,12 @@ fun DriverDashboardScreen(
                             val firstUnreachedIndex = checkpoints.indexOfFirst { it.reached != true }
 
                             checkpoints.forEachIndexed { index, checkpoint ->
-                                val dist = calculatedDistances.getOrNull(index)?.let {
+                                var dist = calculatedDistances.getOrNull(index)?.let {
                                     if (it < 1.0) "${(it * 1000).toInt()}m" else "%.1f km".format(it)
                                 } ?: "--"
+
+                                if(checkpoint.reached == true)
+                                    dist = " "
 
                                 EnhancedRouteItem(
                                     city = checkpoint.name ?: "Unknown Stop",
@@ -430,7 +436,7 @@ fun DriverDashboardScreen(
                                     isReached = checkpoint.reached ?: false,
                                     isFirst = index == 0,
                                     isLast = index == checkpoints.lastIndex,
-                                    isEnabled = index == firstUnreachedIndex,
+                                    isEnabled = index == firstUnreachedIndex && !driverViewModel.isTruckAnimating,
                                     onDelay = { onDelayClick(index) },
                                     onReached = {
                                         onReachedClick(index)
@@ -452,7 +458,14 @@ fun DriverDashboardScreen(
                                 .fillMaxWidth()
                                 .height(160.dp)
                                 .clip(RoundedCornerShape(24.dp))
-                                .background(Brush.horizontalGradient(listOf(actionTealColor, actionTealColor.copy(alpha = 0.6f)))),
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(
+                                            actionTealColor,
+                                            actionTealColor.copy(alpha = 0.6f)
+                                        )
+                                    )
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -514,7 +527,9 @@ fun InfoMetric(label: String, value: String) {
 @Composable
 fun DimensionDisplayItem(label: String, value: String) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(label, color = textThemeColor.copy(alpha = 0.7f))
@@ -534,7 +549,9 @@ fun EnhancedRouteItem(
     onReached: () -> Unit,
     onDetails: () -> Unit
 ) {
-    Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+    Row(modifier = Modifier
+        .fillMaxWidth()
+        .height(IntrinsicSize.Min)) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box(
                 modifier = Modifier
@@ -548,12 +565,18 @@ fun EnhancedRouteItem(
                     modifier = Modifier
                         .width(2.dp)
                         .fillMaxHeight()
-                        .background(if (isReached) actionTealColor.copy(alpha = 0.3f) else Color.Gray.copy(alpha = 0.1f))
+                        .background(
+                            if (isReached) actionTealColor.copy(alpha = 0.3f) else Color.Gray.copy(
+                                alpha = 0.1f
+                            )
+                        )
                 )
             }
         }
         Spacer(modifier = Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f).padding(bottom = 24.dp)) {
+        Column(modifier = Modifier
+            .weight(1f)
+            .padding(bottom = 24.dp)) {
             Text(city, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (isReached) actionTealColor else textThemeColor)
             Text(distance, fontSize = 12.sp, color = Color.Gray)
             
@@ -614,11 +637,15 @@ fun EnhancedCounter(label: String, value: String, onValueChange: (Int) -> Unit) 
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, modifier = Modifier.weight(1f), fontSize = 14.sp, fontWeight = FontWeight.Medium)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { onValueChange(-100) }, modifier = Modifier.background(Color.Gray.copy(alpha = 0.1f), CircleShape).size(32.dp)) {
+            IconButton(onClick = { onValueChange(-100) }, modifier = Modifier
+                .background(Color.Gray.copy(alpha = 0.1f), CircleShape)
+                .size(32.dp)) {
                 Icon(Icons.Default.Remove, contentDescription = null, modifier = Modifier.size(16.dp))
             }
             Text(value, modifier = Modifier.width(80.dp), textAlign = TextAlign.Center, fontWeight = FontWeight.Bold, color = actionTealColor)
-            IconButton(onClick = { onValueChange(100) }, modifier = Modifier.background(actionTealColor.copy(alpha = 0.1f), CircleShape).size(32.dp)) {
+            IconButton(onClick = { onValueChange(100) }, modifier = Modifier
+                .background(actionTealColor.copy(alpha = 0.1f), CircleShape)
+                .size(32.dp)) {
                 Icon(Icons.Default.Add, contentDescription = null, tint = actionTealColor, modifier = Modifier.size(16.dp))
             }
         }
@@ -627,7 +654,9 @@ fun EnhancedCounter(label: String, value: String, onValueChange: (Int) -> Unit) 
 
 @Composable
 fun DimensionItem(label: String, value: Int, onValueChange: (Int) -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier = Modifier
+        .fillMaxWidth()
+        .padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, modifier = Modifier.weight(1f), fontSize = 13.sp, color = textThemeColor.copy(alpha = 0.6f))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("$value cm", fontWeight = FontWeight.SemiBold, color = textThemeColor)
@@ -693,7 +722,9 @@ fun ShipmentRequestsScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             if (errorMessage != null) {
-                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f), contentAlignment = Alignment.Center) {
                     Text(errorMessage, color = statusRedColor, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
                 }
             } else if (requests.isEmpty()) {
@@ -758,7 +789,9 @@ fun RequestCard(
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(
                 onClick = onDetails,
-                modifier = Modifier.weight(1f).height(44.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(44.dp),
                 shape = RoundedCornerShape(12.dp),
                 border = BorderStroke(1.dp, actionTealColor.copy(alpha = 0.3f))
             ) {
@@ -766,7 +799,9 @@ fun RequestCard(
             }
             Button(
                 onClick = onAccept,
-                modifier = Modifier.weight(1f).height(44.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(44.dp),
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
             ) {
@@ -890,7 +925,9 @@ fun ShipmentRequestDetailScreen(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
                     onClick = onDecline,
-                    modifier = Modifier.weight(1f).height(56.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(56.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = statusRedColor.copy(alpha = 0.1f), contentColor = statusRedColor),
                     shape = RoundedCornerShape(16.dp)
                 ) {
@@ -898,7 +935,9 @@ fun ShipmentRequestDetailScreen(
                 }
                 Button(
                     onClick = onAccept,
-                    modifier = Modifier.weight(1f).height(56.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(56.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = actionTealColor),
                     shape = RoundedCornerShape(16.dp)
                 ) {
@@ -1037,7 +1076,9 @@ fun BookingInteractiveCard(
     onDetails: (BookingData) -> Unit,
     onContact: ((BookingData) -> Unit)? = null  // ← add this
 ) {
-    GlassCard(modifier = Modifier.padding(vertical = 8.dp).clickable { onDetails(booking) }) {
+    GlassCard(modifier = Modifier
+        .padding(vertical = 8.dp)
+        .clickable { onDetails(booking) }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
@@ -1064,7 +1105,9 @@ fun BookingInteractiveCard(
         Spacer(modifier = Modifier.height(16.dp))
         Button(
             onClick = { onDetails(booking) },
-            modifier = Modifier.fillMaxWidth().height(40.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(40.dp),
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(containerColor = accentColor)
         ) {
@@ -1076,7 +1119,9 @@ fun BookingInteractiveCard(
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedButton(
                 onClick = { onContact(booking) },
-                modifier = Modifier.fillMaxWidth().height(40.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(40.dp),
                 shape = RoundedCornerShape(12.dp),
                 border = BorderStroke(1.dp, accentColor.copy(alpha = 0.4f))
             ) {
@@ -1095,7 +1140,9 @@ fun DeliveryInteractiveCard(
     onDetails: (CustomerDelivery) -> Unit,
     onConfirm: ((CustomerDelivery) -> Unit)? = null
 ) {
-    GlassCard(modifier = Modifier.padding(vertical = 8.dp).clickable { onDetails(delivery) }) {
+    GlassCard(modifier = Modifier
+        .padding(vertical = 8.dp)
+        .clickable { onDetails(delivery) }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
@@ -1122,7 +1169,9 @@ fun DeliveryInteractiveCard(
             Spacer(modifier = Modifier.height(16.dp))
             Button(
                 onClick = { onConfirm(delivery) },
-                modifier = Modifier.fillMaxWidth().height(40.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(40.dp),
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = accentColor)
             ) {
@@ -1371,17 +1420,24 @@ fun CheckpointShipmentsScreen(
                     fontSize = 12.sp,
                     color = Color.Gray,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
                 )
             }
 
             if (isLoading) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally).padding(vertical = 16.dp))
+                CircularProgressIndicator(modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .padding(vertical = 16.dp))
             } else {
                 Button(
                     onClick = onConfirm,
                     enabled = canConfirm,
-                    modifier = Modifier.fillMaxWidth().height(56.dp).padding(bottom = 12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .padding(bottom = 12.dp),
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = actionTealColor,
@@ -1476,12 +1532,17 @@ fun ShipmentActionCard(
             shipment.packages.forEach { pkg ->
                 val pkgColor = PackageColorPool.getColor(pkg.color)
                 Surface(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
                     shape = RoundedCornerShape(12.dp),
                     color = pkgColor.copy(alpha = 0.12f)
                 ) {
                     Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(modifier = Modifier.size(12.dp).clip(CircleShape).background(pkgColor))
+                        Box(modifier = Modifier
+                            .size(12.dp)
+                            .clip(CircleShape)
+                            .background(pkgColor))
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(pkg.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -1816,9 +1877,12 @@ fun CustomerShipmentsDetailScreen(
                     }
                     if (chat.hasUnread) {
                         Box(
-                            modifier = Modifier.size(12.dp).clip(CircleShape)
+                            modifier = Modifier
+                                .size(12.dp)
+                                .clip(CircleShape)
                                 .background(statusRedColor)
-                                .border(2.dp, backgroundColor, CircleShape).align(Alignment.TopEnd)
+                                .border(2.dp, backgroundColor, CircleShape)
+                                .align(Alignment.TopEnd)
                         )
                     }
                 }
@@ -1934,7 +1998,9 @@ fun CustomerShipmentsDetailScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Box(modifier = Modifier.size(120.dp)) {
                             Surface(
-                                modifier = Modifier.fillMaxSize().shadow(12.dp, CircleShape),
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .shadow(12.dp, CircleShape),
                                 shape = CircleShape,
                                 color = Color.White
                             ) {
@@ -1954,7 +2020,9 @@ fun CustomerShipmentsDetailScreen(
                                 }
                             }
                             Surface(
-                                modifier = Modifier.size(36.dp).align(Alignment.BottomEnd),
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .align(Alignment.BottomEnd),
                                 shape = CircleShape,
                                 color = actionTealColor,
                                 shadowElevation = 4.dp
@@ -2022,7 +2090,9 @@ fun CustomerShipmentsDetailScreen(
 
                     Button(
                         onClick = onLogoutClick,
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = statusRedColor.copy(
                                 alpha = 0.1f
@@ -2108,7 +2178,9 @@ fun CustomerShipmentsDetailScreen(
                         item {
                             GlassCard {
                                 Row(
-                                    modifier = Modifier.fillMaxWidth().padding(8.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
@@ -2141,7 +2213,9 @@ fun CustomerShipmentsDetailScreen(
                         if (reviews.isEmpty()) {
                             item {
                                 Box(
-                                    modifier = Modifier.fillParentMaxHeight(0.6f).fillMaxWidth(),
+                                    modifier = Modifier
+                                        .fillParentMaxHeight(0.6f)
+                                        .fillMaxWidth(),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text("No feedback received yet", color = Color.Gray)
@@ -2163,7 +2237,9 @@ fun CustomerShipmentsDetailScreen(
     @Composable
     fun ReviewItem(review: ReviewDto) {
         GlassCard {
-            Column(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
+            Column(modifier = Modifier
+                .fillMaxWidth()
+                .padding(4.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -2276,7 +2352,10 @@ fun CustomerShipmentsDetailScreen(
             containerColor = backgroundColor
         ) { innerPadding ->
             Column(
-                modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp)
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(horizontal = 24.dp)
                     .verticalScroll(rememberScrollState())
             ) {
                 Spacer(modifier = Modifier.height(24.dp))
@@ -2310,14 +2389,14 @@ fun CustomerShipmentsDetailScreen(
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))
-                Button(
+                /*Button(
                     onClick = onEditClick,
                     modifier = Modifier.fillMaxWidth().height(54.dp),
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
                 ) {
                     Text("Edit Profile", fontWeight = FontWeight.Bold)
-                }
+                }*/
             }
         }
     }
@@ -2346,7 +2425,10 @@ fun CustomerShipmentsDetailScreen(
     ) {
         var messageText by remember { mutableStateOf("") }
 
-        Column(modifier = Modifier.fillMaxSize().background(backgroundColor).imePadding()) {
+        Column(modifier = Modifier
+            .fillMaxSize()
+            .background(backgroundColor)
+            .imePadding()) {
             // Chat Header
             Surface(
                 modifier = Modifier.fillMaxWidth(),
@@ -2391,7 +2473,9 @@ fun CustomerShipmentsDetailScreen(
             }
 
             // Messages Area
-            Box(modifier = Modifier.weight(1f).padding(horizontal = 16.dp)) {
+            Box(modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 16.dp)) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     reverseLayout = false,
@@ -2415,7 +2499,9 @@ fun CustomerShipmentsDetailScreen(
                         value = messageText,
                         onValueChange = { messageText = it },
                         placeholder = { Text("Write a message...") },
-                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(24.dp)),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(24.dp)),
                         colors = TextFieldDefaults.colors(
                             focusedContainerColor = backgroundColor.copy(
                                 alpha = 0.3f
@@ -2577,7 +2663,9 @@ fun ActivateRouteScreen(
                 // ── Create New button ─────────────────────────────────────────────
                 Button(
                     onClick = onCreateNew,
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
                 ) {
@@ -2662,7 +2750,9 @@ fun ActivateRouteScreen(
 
                 if (isLoading) {
                     Box(
-                        modifier = Modifier.fillMaxWidth().padding(32.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(32.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         CircularProgressIndicator(color = actionTealColor)
@@ -2756,7 +2846,9 @@ fun ActivateRouteScreen(
             ) {
                 OutlinedButton(
                     onClick = onMakeNext,
-                    modifier = Modifier.weight(1f).height(40.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(40.dp),
                     shape = RoundedCornerShape(10.dp),
                     border = BorderStroke(1.dp, actionTealColor.copy(alpha = 0.4f)),
                     enabled = hasActiveRoute,
@@ -2781,7 +2873,9 @@ fun ActivateRouteScreen(
                 }
                 Button(
                     onClick = onMakeActive,
-                    modifier = Modifier.weight(1f).height(40.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(40.dp),
                     shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = actionTealColor,
@@ -2828,7 +2922,10 @@ fun ActivateRouteScreen(
             )
         }, containerColor = backgroundColor) { innerPadding ->
             Column(
-                modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp)
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(horizontal = 24.dp)
             ) {
                 Spacer(modifier = Modifier.height(32.dp))
                 Text("Select Route", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
@@ -2836,7 +2933,9 @@ fun ActivateRouteScreen(
 
                 if (savedRoutes.isEmpty()) {
                     Box(
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -2862,7 +2961,9 @@ fun ActivateRouteScreen(
                 Spacer(modifier = Modifier.height(24.dp))
                 Button(
                     onClick = onCreateNewRoute,
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
                 ) {
@@ -2875,6 +2976,7 @@ fun ActivateRouteScreen(
         }
     }
 
+@RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
 @androidx.annotation.RequiresPermission(allOf = [android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION])
     @Composable
     fun CreateRouteStep1(
@@ -2898,7 +3000,9 @@ fun ActivateRouteScreen(
                 onProfileClick
             )
         }, containerColor = backgroundColor) { innerPadding ->
-            Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            Column(modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)) {
                 Box(modifier = Modifier.weight(1f)) {
                     OSMContainer(
                         points = routePoints.toList(),
@@ -2906,7 +3010,10 @@ fun ActivateRouteScreen(
                         onMapLongClick = {})
 
                     Surface(
-                        modifier = Modifier.align(Alignment.TopCenter).padding(16.dp).fillMaxWidth()
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(16.dp)
+                            .fillMaxWidth()
                             .shadow(4.dp, RoundedCornerShape(16.dp)),
                         color = Color.White.copy(alpha = 0.9f),
                         shape = RoundedCornerShape(16.dp)
@@ -2926,11 +3033,26 @@ fun ActivateRouteScreen(
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.weight(1f)
                             )
+                            Button(
+                                onClick = {
+                                    routePoints.removeLastOrNull()
+                                },
+                                enabled = routePoints.isNotEmpty(),
+                                modifier = Modifier
+                                    .padding(1.dp)
+                                    .wrapContentSize(),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = actionTealColor),
+                                contentPadding = PaddingValues(horizontal = 12.dp)
+                            ) {
+                                Text("Undo")
+                            }
                             Text(
                                 "${routePoints.size} Points",
                                 fontSize = 12.sp,
                                 color = actionTealColor,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
                             )
                         }
                     }
@@ -2944,7 +3066,10 @@ fun ActivateRouteScreen(
                     Button(
                         onClick = onNext,
                         enabled = routePoints.size >= 2,
-                        modifier = Modifier.padding(16.dp).fillMaxWidth().height(56.dp),
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .fillMaxWidth()
+                            .height(56.dp),
                         shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
                     ) {
@@ -2988,7 +3113,10 @@ fun ActivateRouteScreen(
             )
         }, containerColor = backgroundColor) { innerPadding ->
             Column(
-                modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp)
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(horizontal = 24.dp)
                     .verticalScroll(rememberScrollState())
             ) {
                 Spacer(modifier = Modifier.height(24.dp))
@@ -3044,7 +3172,9 @@ fun ActivateRouteScreen(
                         onNext(dep, arr)
                     },
                     enabled = departureDate != null && arrivalDate != null,
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
                     shape = RoundedCornerShape(16.dp)
                 ) {
                     Text("Continue")
@@ -3131,7 +3261,7 @@ fun ActivateRouteScreen(
                     fontWeight = FontWeight.ExtraBold,
                     color = actionTealColor
                 )
-                Slider(value = fare, onValueChange = { fare = it }, valueRange = 100f..50000f)
+                Slider(value = fare, onValueChange = { fare = it }, valueRange = 50f..2000f)
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
@@ -3144,15 +3274,63 @@ fun ActivateRouteScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 viewModel.previewedPoints.forEachIndexed { index, point ->
+                    var allowChange = true;
+                    if(index == 0 || index == viewModel.previewedPoints.size - 1)
+                        allowChange = false
                     CheckpointTimeItem(
                         point = point,
                         onTimeClick = {
-                            showDateTimePicker(context, point.estimatedArrival) { newDateTime ->
-                                val updatedList = viewModel.previewedPoints.toMutableList()
-                                updatedList[index] = point.copy(estimatedArrival = newDateTime)
-                                viewModel.updatePreviewedPoints(updatedList)
+                            if (allowChange) {
+                                showDateTimePicker(context, point.estimatedArrival) { newDateTime ->
+                                    val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")
+
+                                    try {
+                                        val newSelection = LocalDateTime.parse(newDateTime, formatter)
+
+                                        // 1. Get Previous Point Time
+                                        val previousTime = LocalDateTime.parse(
+                                            viewModel.previewedPoints[index - 1].estimatedArrival,
+                                            formatter
+                                        )
+
+                                        // 2. Get Next Point Time
+                                        val nextTime = LocalDateTime.parse(
+                                            viewModel.previewedPoints[index + 1].estimatedArrival,
+                                            formatter
+                                        )
+
+                                        // 3. Dual Validation
+                                        when {
+                                            newSelection.isBefore(previousTime) || newSelection == previousTime -> {
+                                                android.widget.Toast.makeText(
+                                                    context,
+                                                    "Arrival must be after the previous stop",
+                                                    android.widget.Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                            newSelection.isAfter(nextTime) || newSelection == nextTime -> {
+                                                android.widget.Toast.makeText(
+                                                    context,
+                                                    "Arrival must be before the next stop",
+                                                    android.widget.Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                            else -> {
+                                                // Success: Update the list
+                                                val updatedList = viewModel.previewedPoints.toMutableList()
+                                                updatedList[index] = point.copy(estimatedArrival = newDateTime)
+                                                viewModel.updatePreviewedPoints(updatedList)
+                                                viewModel.clearError()
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e("DATE_DEBUG", "Failed to parse: $newDateTime", e)
+                                        android.widget.Toast.makeText(context, "Format error: Check Logcat", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
                             }
-                        }
+                        },
+                        allowChange = allowChange
                     )
                 }
 
@@ -3170,13 +3348,21 @@ fun ActivateRouteScreen(
                 ) {
                     RadioButton(
                         selected = viewModel.plannedShipmentType == "Shared",
-                        onClick = { viewModel.plannedShipmentType = "Shared" }
+                        onClick = { viewModel.plannedShipmentType = "Shared" },
+                        colors = RadioButtonDefaults.colors(
+                            selectedColor = actionTealColor, // The color when selected
+                            unselectedColor = Color.Gray.copy(alpha = 0.6f) // The color when unselected
+                        )
                     )
                     Text("Shared")
                     Spacer(modifier = Modifier.width(16.dp))
                     RadioButton(
                         selected = viewModel.plannedShipmentType == "Full",
-                        onClick = { viewModel.plannedShipmentType = "Full" }
+                        onClick = { viewModel.plannedShipmentType = "Full" },
+                        colors = RadioButtonDefaults.colors(
+                            selectedColor = actionTealColor, // The color when selected
+                            unselectedColor = Color.Gray.copy(alpha = 0.6f) // The color when unselected
+                        )
                     )
                     Text("Full Load")
                 }
@@ -3210,7 +3396,9 @@ fun ActivateRouteScreen(
                 } else {
                     Button(
                         onClick = { onSave(fare.toDouble()) },
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp),
                         shape = RoundedCornerShape(16.dp)
                     ) {
                         Text(
@@ -3227,7 +3415,9 @@ fun ActivateRouteScreen(
     @Composable
     fun PreferenceToggle(label: String, isChecked: Boolean, onCheckedChange: (Boolean) -> Unit) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -3446,7 +3636,9 @@ fun ActivateRouteScreen(
                             }
                         },
                         enabled = (days > 0 || hours > 0) && reason.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp),
                         shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = statusRedColor,
