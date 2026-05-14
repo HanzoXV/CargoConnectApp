@@ -1,8 +1,6 @@
 package com.example.cargoconnectapp.ui.navigation.screens
 
 import android.Manifest
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -50,10 +48,12 @@ import com.example.cargoconnectapp.ui.themes.*
 import com.example.cargoconnectapp.ui.models.map.OSMContainer
 import com.example.cargoconnectapp.ui.models.map.getAddressFromGeoPoint
 import com.example.cargoconnectapp.data.RetrofitClient
+import com.example.cargoconnectapp.ui.models.destinations.CustomerBookingPage
+import com.example.cargoconnectapp.ui.models.destinations.CustomerBookings
+import com.example.cargoconnectapp.ui.models.destinations.DriverDashboard
 import com.example.cargoconnectapp.ui.models.destinations.DriverDestination
 import kotlinx.coroutines.delay
 import org.osmdroid.util.GeoPoint
-import java.sql.Time
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
@@ -173,7 +173,7 @@ fun CustomerDashboardScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("Active Shipments", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = textThemeColor)
-                Button(
+                /*Button(
                     onClick = onNewBookingClick,
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = actionTealColor),
@@ -182,7 +182,7 @@ fun CustomerDashboardScreen(
                     Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Book New", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                }
+                }*/
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -579,6 +579,153 @@ fun NewShipmentRouteScreen(
         }
     }
 }
+@RequiresApi(Build.VERSION_CODES.O)
+@RequiresPermission(
+    allOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION]
+)
+@Composable
+fun ResearchRouteScreen(
+    customerViewModel: CustomerViewModel,
+    onBookNow: () -> Unit = {},
+    onHomeClick: () -> Unit = {},
+    onOrdersClick: () -> Unit = {},
+    onHistoryClick: () -> Unit = {},
+    onChatClick: () -> Unit = {},
+    onProfileClick: () -> Unit = {},
+    currentTab: CustomerDestination = CustomerDashboard()
+) {
+    var currentMonth by remember { mutableStateOf(YearMonth.now()) }
+    val context = LocalContext.current
+
+    Scaffold(
+        bottomBar = { CustomerBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) },
+        containerColor = backgroundColor
+    ) { innerPadding ->
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+
+            Box(modifier = Modifier.weight(0.5f).fillMaxWidth()) {
+                val routePoints = mutableListOf<GeoPoint>()
+                customerViewModel.pickupGeoPoint?.let { routePoints.add(it) }
+                customerViewModel.destinationGeoPoint?.let { routePoints.add(it) }
+
+                OSMContainer(
+                    points = routePoints,
+                    circleCenter = customerViewModel.pickupGeoPoint,
+                    radiusInMeters = customerViewModel.radius,
+                    onMapClick = { geoPoint ->
+                        if (customerViewModel.locationSelectionMode == "Pickup") {
+                            customerViewModel.pickupGeoPoint = geoPoint
+                            customerViewModel.pickupPoint = getAddressFromGeoPoint(context, geoPoint)
+                        } else {
+                            customerViewModel.destinationGeoPoint = geoPoint
+                            customerViewModel.destination = getAddressFromGeoPoint(context, geoPoint)
+                        }
+                    }
+                )
+
+                Surface(
+                    modifier = Modifier.align(Alignment.TopCenter).padding(16.dp).fillMaxWidth().shadow(4.dp, RoundedCornerShape(16.dp)),
+                    color = Color.White.copy(alpha = 0.9f),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Text(
+                        "Selecting: ${customerViewModel.locationSelectionMode} Location",
+                        modifier = Modifier.padding(12.dp),
+                        textAlign = TextAlign.Center,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = actionTealColor
+                    )
+                }
+            }
+
+            // Controls Section (Radius Slider & Form)
+            Column(modifier = Modifier.weight(0.5f).fillMaxWidth()) {
+                // Radius Slider
+                Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
+                    Text(
+                        "Search Radius: ${String.format("%.1f", customerViewModel.radius / 1000)} KM",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = textThemeColor
+                    )
+                    Slider(
+                        value = customerViewModel.radius.toFloat(),
+                        onValueChange = { customerViewModel.radius = it.toDouble() },
+                        valueRange = 100f..10000f,
+                        colors = SliderDefaults.colors(thumbColor = actionTealColor, activeTrackColor = actionTealColor)
+                    )
+                }
+
+                // Location Fields
+                Column(modifier = Modifier.padding(horizontal = 24.dp).weight(1f).verticalScroll(rememberScrollState())) {
+                    Text("Route & Schedule", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    LocationSelectionField(
+                        value = customerViewModel.pickupPoint,
+                        placeholder = "Pickup Address",
+                        icon = Icons.Default.PinDrop,
+                        isSelected = customerViewModel.locationSelectionMode == "Pickup",
+                        onSelect = { customerViewModel.locationSelectionMode = "Pickup" }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LocationSelectionField(
+                        value = customerViewModel.destination,
+                        placeholder = "Delivery Address",
+                        icon = Icons.Default.Flag,
+                        isSelected = customerViewModel.locationSelectionMode == "Destination",
+                        onSelect = { customerViewModel.locationSelectionMode = "Destination" }
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Preferred Date", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    CalendarView(currentMonth = currentMonth, selectedDate = customerViewModel.selectedLocalDate, onDateSelected = { customerViewModel.selectedLocalDate = it }, onMonthChanged = { currentMonth = it })
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    GlassCard {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Switch(checked = customerViewModel.isStrictSchedule, onCheckedChange = { customerViewModel.isStrictSchedule = it })
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text("Strict Schedule Only", fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Shipment Type", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    GlassCard {
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).clickable { customerViewModel.shipmentType = "Full" }) {
+                                RadioButton(selected = customerViewModel.shipmentType == "Full", onClick = { customerViewModel.shipmentType = "Full" })
+                                Text("Full", fontSize = 14.sp)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).clickable { customerViewModel.shipmentType = "Shared" }) {
+                                RadioButton(selected = customerViewModel.shipmentType == "Shared", onClick = { customerViewModel.shipmentType = "Shared" })
+                                Text("Shared", fontSize = 14.sp)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                }
+
+                Surface(modifier = Modifier.fillMaxWidth(), color = Color.White, shadowElevation = 16.dp) {
+                    Button(
+                        onClick = onBookNow,
+                        modifier = Modifier.padding(16.dp).fillMaxWidth().height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        enabled = customerViewModel.pickupPoint.isNotBlank() && customerViewModel.destination.isNotBlank() && customerViewModel.selectedLocalDate != null
+                    ) {
+                        Text("Confirm & Search", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 @Composable
 fun LocationSelectionField(
@@ -974,9 +1121,43 @@ fun DriverDetailsScreen(
 // ─────────────────────────────────────────────
 // TAB 3 & 4 & 5
 // ─────────────────────────────────────────────
+@RequiresApi(Build.VERSION_CODES.O)
+@Composable
+fun TrackDriverScreen(
+    driverRoute: List<GeoPoint>,
+    customerViewModel: CustomerViewModel,
+    onHomeClick: () -> Unit = {},
+    onOrdersClick: () -> Unit = {},
+    onHistoryClick: () -> Unit = {},
+    onChatClick: () -> Unit = {},
+    onProfileClick: () -> Unit = {},
+    currentTab: CustomerDestination = CustomerDashboard()
+) {
+    Scaffold(
+        bottomBar = { CustomerBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) },
+        containerColor = backgroundColor
+    ) { innerPadding ->
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
 
+            Box(modifier = Modifier.weight(0.5f).fillMaxWidth()) {
+                val routePoints = mutableListOf<GeoPoint>()
+                customerViewModel.pickupGeoPoint?.let { routePoints.add(it) }
+                customerViewModel.destinationGeoPoint?.let { routePoints.add(it) }
+
+                OSMContainer(
+                    points = driverRoute,
+                    radiusInMeters = 0.0,
+                    onMapClick = { },
+                    trackDriver = true,
+                )
+                customerViewModel.fetchDriverLocation()
+            }
+        }
+    }
+}
 @Composable
 fun YourBookingsScreen(
+    userID: Int,
     customerViewModel: CustomerViewModel,
     activeBookings: List<CustomerBooking> = emptyList(),
     completedBookings: List<CustomerBooking> = emptyList(),
@@ -988,6 +1169,7 @@ fun YourBookingsScreen(
     onCancelClick: (CustomerBooking) -> Unit = {},
     onReviewClick: (CustomerBooking) -> Unit = {},
     onFindTruckClick: (ShipmentDto) -> Unit = {},
+    onDelete: (ShipmentDto) -> Unit = {},
     onShipmentDetailsClick: (ShipmentDto) -> Unit = {},
     onHomeClick: () -> Unit = {},
     onOrdersClick: () -> Unit = {},
@@ -996,6 +1178,7 @@ fun YourBookingsScreen(
     onProfileClick: () -> Unit = {},
     currentTab: CustomerDestination = CustomerDashboard()
 ) {
+    var canReview by remember { mutableStateOf(true) }
     var selectedTab by remember { mutableStateOf("Active") }
     var selectedShipmentForModal by remember { mutableStateOf<ShipmentDto?>(null) }
 
@@ -1008,18 +1191,38 @@ fun YourBookingsScreen(
             Spacer(modifier = Modifier.height(24.dp))
             LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(bottom = 32.dp)) {
                 when (selectedTab) {
-                    "Active" -> { items(activeBookings) { booking -> CustomerBookingCardOverhauled(booking, onDetails = { onDetailsClick(booking) }, onContact = { onContactDriverClick(booking) }, onTrack = { onTrackClick(booking) }, onCancel = { onCancelClick(booking) }) } }
+                    "Active" -> {
+                        items(activeBookings) {
+                            booking ->
+                            CustomerBookingCardOverhauled(booking, onDetails = { onDetailsClick(booking) }, onContact = { onContactDriverClick(booking) }, onTrack = { onTrackClick(booking) }, onCancel = { onCancelClick(booking) })
+                        }
+                    }
                     "Pending" -> { 
                         items(pendingBookings) { shipment -> 
                             PendingShipmentCard(
                                 shipment = shipment, 
                                 onFindTruck = { onFindTruckClick(shipment) },
-                                onDetails = { selectedShipmentForModal = shipment }
+                                onDetails = { selectedShipmentForModal = shipment },
+                                onDelete = {onDelete(shipment)}
                             ) 
                         } 
                     }
-                    "Completed" -> { items(completedBookings) { booking -> CompletedBookingCardOverhauled(booking, onDetails = { onDetailsClick(booking) }, onReview = { onReviewClick(booking) }) }}
-                    "Assigned" -> { items(activeBookings) { booking -> CustomerBookingCardOverhauled(booking, onDetails = { onDetailsClick(booking) }, onContact = { onContactDriverClick(booking) }, onTrack = { onTrackClick(booking) }, onCancel = { onCancelClick(booking) }) } }
+                    "Completed" -> { items(completedBookings) {
+                        booking ->
+                        customerViewModel.checkCanReview(
+                            reviewerUserId = userID,
+                            bookingId = booking.id,
+                            onCanReview = {
+                                canReview = true
+                            },
+                            onCannotReview = { msg ->
+                                canReview = false
+                            }
+                        )
+                        CompletedBookingCardOverhauled(booking, onDetails = { onDetailsClick(booking) }, onReview = { onReviewClick(booking) }, canReview)
+                    }
+                    }
+                    "Assigned" -> { items(assignedBookings) { booking -> CustomerBookingCardOverhauled(booking, onDetails = { onDetailsClick(booking) }, onContact = { onContactDriverClick(booking) }, onTrack = { onTrackClick(booking) }, onCancel = { onCancelClick(booking) }) } }
                 }
             }
         }
@@ -1035,7 +1238,7 @@ fun YourBookingsScreen(
 }
 
 @Composable
-fun PendingShipmentCard(shipment: ShipmentDto, onFindTruck: () -> Unit, onDetails: () -> Unit) {
+fun PendingShipmentCard(shipment: ShipmentDto, onFindTruck: () -> Unit, onDetails: () -> Unit, onDelete: () -> Unit) {
     GlassCard(modifier = Modifier.clickable { onDetails() }) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1069,8 +1272,18 @@ fun PendingShipmentCard(shipment: ShipmentDto, onFindTruck: () -> Unit, onDetail
                 Text("Details", fontSize = 12.sp, color = textThemeColor)
             }
             Button(
+                onClick = onDelete,
+                modifier = Modifier.weight(1f).height(40.dp),
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+            ) {
+                Icon(Icons.Default.Delete, null, modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Delete", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+            Button(
                 onClick = onFindTruck,
-                modifier = Modifier.weight(1.5f).height(40.dp),
+                modifier = Modifier.weight(1f).height(40.dp),
                 shape = RoundedCornerShape(10.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
             ) {
@@ -1129,7 +1342,7 @@ fun PendingShipmentDetailsModal(
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Items", fontSize = 10.sp, color = Color.Gray)
+                        Text("Quantity", fontSize = 10.sp, color = Color.Gray)
                         Text("${shipment.packages?.size ?: 0} units", fontWeight = FontWeight.Bold)
                     }
                     Column(modifier = Modifier.weight(1f)) {
@@ -1178,14 +1391,12 @@ fun CustomerActivityScreen(
 fun CustomerProfileScreen(
     fullName: String = "John Doe",
     profileImageUrl: String? = null,
-    rating: Float = 4.9f,
-    isSwitchedToDriver: Boolean = false,
-    onBookingDetailsClick: () -> Unit = {},
+    rating: Double = 4.9,
+    numberOfReviews: Int = 0,
     onYourInformationClick: () -> Unit = {},
     onRequestHistoryClick: () -> Unit = {},
     onLogoutClick: () -> Unit = {},
     onReviewsClick: () -> Unit = {},
-    onSwitchRoleToggle: (Boolean) -> Unit = {},
     onHomeClick: () -> Unit = {},
     onOrdersClick: () -> Unit = {},
     onHistoryClick: () -> Unit = {},
@@ -1216,15 +1427,106 @@ fun CustomerProfileScreen(
                     }
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(fullName, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.Star,
+                            null,
+                            tint = statusOrangeColor,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            " $rating Customer Rating ($numberOfReviews)",
+                            fontSize = 14.sp,
+                            color = Color.Gray,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
             }
             Column(modifier = Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                ProfileMenuCard("Shipment History", Icons.Default.History, onBookingDetailsClick)
+                //ProfileMenuCard("Shipment History", Icons.Default.History, onBookingDetailsClick)
                 ProfileMenuCard("Request History", Icons.Default.Assignment, onRequestHistoryClick)
                 ProfileMenuCard("Reviews", Icons.Default.Assignment, onReviewsClick)
                 ProfileMenuCard("Personal Details", Icons.Default.Badge, onYourInformationClick)
                 Button(onClick = onLogoutClick, modifier = Modifier.fillMaxWidth().height(56.dp).padding(top = 12.dp), colors = ButtonDefaults.buttonColors(containerColor = statusRedColor.copy(alpha = 0.1f), contentColor = statusRedColor), shape = RoundedCornerShape(16.dp)) { Text("Logout", fontWeight = FontWeight.Bold) }
             }
+        }
+    }
+}
+@Composable
+fun CustomerInformationScreen(
+    fullName: String = "",
+    phone: String = "",
+    email: String = "",
+    address: String = "",
+    city: String = "",
+    cnic: String = "",
+    onBack: () -> Unit = {},
+    onEditClick: () -> Unit = {},
+    onHomeClick: () -> Unit = {},
+    onOrdersClick: () -> Unit = {},
+    onHistoryClick: () -> Unit = {},
+    onChatClick: () -> Unit = {},
+    onProfileClick: () -> Unit = {},
+    currentTab: CustomerDestination = CustomerDashboard()
+) {
+    Scaffold(bottomBar = { CustomerBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) }, containerColor = backgroundColor) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Spacer(modifier = Modifier.height(24.dp))
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.background(Color.White, CircleShape)
+            ) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("Personal Details", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+
+            Spacer(modifier = Modifier.height(24.dp))
+            GlassCard {
+                DetailRow("Full Name", fullName)
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 12.dp),
+                    color = Color.Gray.copy(alpha = 0.1f)
+                )
+                DetailRow("CNIC", cnic)
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 12.dp),
+                    color = Color.Gray.copy(alpha = 0.1f)
+                )
+                DetailRow("Phone", phone)
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 12.dp),
+                    color = Color.Gray.copy(alpha = 0.1f)
+                )
+                DetailRow("Email", email)
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 12.dp),
+                    color = Color.Gray.copy(alpha = 0.1f)
+                )
+                DetailRow("Address", address)
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 12.dp),
+                    color = Color.Gray.copy(alpha = 0.1f)
+                )
+                DetailRow("City", city)
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+            /*Button(
+                onClick = onEditClick,
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)
+            ) {
+                Text("Edit Profile", fontWeight = FontWeight.Bold)
+            }*/
         }
     }
 }
@@ -1727,7 +2029,7 @@ fun CustomerBookingCardOverhauled(
 }
 
 @Composable
-fun CompletedBookingCardOverhauled(booking: CustomerBooking, onDetails: () -> Unit, onReview: () -> Unit) {
+fun CompletedBookingCardOverhauled(booking: CustomerBooking, onDetails: () -> Unit, onReview: () -> Unit, canReview: Boolean) {
     GlassCard(modifier = Modifier.clickable { onDetails() }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Surface(modifier = Modifier.size(40.dp), shape = CircleShape, color = Color.Gray.copy(alpha = 0.1f)) { Icon(Icons.Default.CheckCircle, null, modifier = Modifier.padding(10.dp), tint = Color.Gray) }
@@ -1740,7 +2042,16 @@ fun CompletedBookingCardOverhauled(booking: CustomerBooking, onDetails: () -> Un
         Spacer(modifier = Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onDetails, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text("Details") }
-            Button(onClick = onReview, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp), colors = ButtonDefaults.buttonColors(containerColor = actionTealColor)) { Text("Review") }
+            Button(onClick = onReview,  enabled = canReview, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.White,
+                    contentColor = Color.Black,
+                    // Set the background color when the button is disabled
+                    disabledContainerColor = Color.LightGray.copy(alpha = 0.5f),
+                    // Set the text/icon color when the button is disabled
+                    disabledContentColor = Color.Gray
+                ))
+            { Text(if(canReview) "Review" else "Already Reviewed") }
         }
     }
 }

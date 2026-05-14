@@ -68,7 +68,7 @@ enum class CustomerNewShipmentPage {
     RecipientDetails,
     FindingTruck,
     AvailableTrucks,
-    TruckDetails
+    TruckDetails,
 }
 
 @Serializable
@@ -79,7 +79,9 @@ enum class CustomerBookingPage {
     Assigned,
     Details,
     CancelBooking,
-    Review
+    Review,
+    ResearchRoute,
+    Tracking
 }
 
 @Serializable

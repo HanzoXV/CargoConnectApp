@@ -46,6 +46,7 @@ import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import java.util.Locale
 import androidx.core.graphics.toColorInt
+import com.example.cargoconnectapp.ui.models.viewmodels.CustomerViewModel
 import com.example.cargoconnectapp.ui.models.viewmodels.DriverViewModel
 import org.osmdroid.events.MapListener
 import org.osmdroid.events.ScrollEvent
@@ -125,11 +126,17 @@ fun OSMContainer(
     // Set this to a new TruckAnimationEvent every time "Reached" is pressed.
     truckAnimationEvent: TruckAnimationEvent? = null,
     driverViewModel: DriverViewModel? = null,
-    driverId: Int = -1
+    customerViewModel: CustomerViewModel? = null,
+    driverId: Int = -1,
+    trackDriver: Boolean = false
     // ─────────────────────────────────────────────────────────────────────────
 ) {
     val context = LocalContext.current
     org.osmdroid.config.Configuration.getInstance().userAgentValue = context.packageName
+
+    val redDotIcon = remember(context) {
+        ContextCompat.getDrawable(context, R.drawable.ic_red_dot)
+    }
 
     val mapView = rememberMapViewWithLifecycle()
 
@@ -166,7 +173,33 @@ fun OSMContainer(
         mapView.addMapListener(listener)
         onDispose { mapView.removeMapListener(listener) }
     }
+    customerViewModel
+    if (trackDriver) {
+        // Watch for location changes [cite: 16-17]
+        LaunchedEffect(customerViewModel?.driverLocation) {
+            val newLocation = customerViewModel?.driverLocation ?: return@LaunchedEffect
 
+            // Find existing driver marker [cite: 34-36]
+            val existingMarker = mapView.overlays.filterIsInstance<Marker>()
+                .find { it.id == "driver_red_dot" }
+
+            if (existingMarker != null) {
+                // OPTIMIZATION: Instead of removing and adding, just update the position
+                existingMarker.position = newLocation
+            } else {
+                // First time creation
+                val driverMarker = Marker(mapView).apply {
+                    id = "driver_red_dot"
+                    position = newLocation
+                    icon = redDotIcon // Use cached icon
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                }
+                mapView.overlays.add(driverMarker)
+            }
+
+            mapView.invalidate() // Refresh the view
+        }
+    }
 
     // ── Effect 1: Redraw route, checkpoint markers, optional circle ───────────
     LaunchedEffect(points.size, radiusInMeters, points.hashCode(), truckAtIndex) {

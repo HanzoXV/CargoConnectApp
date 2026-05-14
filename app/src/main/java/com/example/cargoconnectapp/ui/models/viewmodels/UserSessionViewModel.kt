@@ -34,6 +34,9 @@ class UserSessionViewModel : ViewModel() {
         private set
     var userCity by mutableStateOf("")
         private set
+
+    var userCNIC by mutableStateOf("")
+        private set
     var userProfileImageUrl by mutableStateOf<String?>(null)
         private set
     var activeRouteId by mutableIntStateOf(-1)
@@ -69,6 +72,7 @@ class UserSessionViewModel : ViewModel() {
         this.userLicenseNo = userData.licenseNo ?: ""
         this.userStreetAddress = userData.streetNo ?: ""
         this.userCity = userData.city ?: ""
+        this.userCNIC = userData.cnic ?: ""
         
         // Centralized URL reconstruction: IP + relative path
         this.userProfileImageUrl = if (profileImage != "n/a" && profileImage.isNotBlank()) {
@@ -87,6 +91,5 @@ class UserSessionViewModel : ViewModel() {
         userEmail = "Not Specified"
         userRole = UserRoles.NotSpecified
         userProfileImageUrl = null
-        // ... clear other fields as needed
     }
 }

@@ -12,6 +12,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
 import com.example.cargoconnectapp.ui.models.datamodels.BookingStatus
 import com.example.cargoconnectapp.ui.models.datamodels.CustomerBooking
+import com.example.cargoconnectapp.ui.models.datamodels.UpdateShipmentRouteRequest
 import com.example.cargoconnectapp.ui.models.destinations.*
 import com.example.cargoconnectapp.ui.models.viewmodels.AuthViewModel
 import com.example.cargoconnectapp.ui.models.viewmodels.CustomerViewModel
@@ -295,7 +296,7 @@ fun NavGraphBuilder.customerGraph(
             CustomerBookingPage.Completed -> {
                 
                 val activeList = customerViewModel.customerBookings
-                    .filter { it.status.lowercase() in listOf("assigned", "intransit", "moving") }
+                    .filter { it.status.lowercase() in listOf("in-transit", "moving") }
                     .map { dto ->
                         CustomerBooking(
                             id = dto.id,
@@ -336,6 +337,7 @@ fun NavGraphBuilder.customerGraph(
                     }
 
                 YourBookingsScreen(
+                    userID = session.userId,
                     customerViewModel    = customerViewModel,
                     currentTab           = args.tab,
                     onHomeClick          = args.onHomeClick,
@@ -366,9 +368,10 @@ fun NavGraphBuilder.customerGraph(
                             )
                         }
                     },
-                    onTrackClick         = { booking -> 
+                    onTrackClick         = { booking ->
+                        customerViewModel.fetchDriverLocation()
                         customerViewModel.selectedBooking = customerViewModel.customerBookings.find { it.id == booking.id }
-                        navController.navigate(CustomerDashboard(CustomerDashboardPage.Tracking)) 
+                        navController.navigate(CustomerBookings(CustomerBookingPage.Tracking))
                     },
                     onCancelClick        = { booking -> 
                         customerViewModel.selectedBooking = customerViewModel.customerBookings.find { it.id == booking.id }
@@ -386,19 +389,54 @@ fun NavGraphBuilder.customerGraph(
                             }
                         )
                     },
-                    onFindTruckClick     = { shipment ->
-                        customerViewModel.radius = shipment.shipmentRadius ?: 1.0
-                        customerViewModel.searchAvailableTrucks(
-                            shipmentId = shipment.shipmentId,
-                            isStrict = shipment.strict,
+                    onFindTruckClick = { shipment ->
+                        customerViewModel.selectedShipmentId = shipment.shipmentId
+                        customerViewModel.loadShipmentForResearch()
+
+                        navController.navigate(CustomerBookings(CustomerBookingPage.ResearchRoute))
+                    },
+                    onShipmentDetailsClick = { shipment ->
+                    },
+                    onDelete = { shipment ->
+                        customerViewModel.selectedShipmentId = shipment.shipmentId
+                        customerViewModel.deleteShipment(shipment.shipmentId, {
+                            Toast.makeText(context, "Shipment deleted successfully", Toast.LENGTH_SHORT).show()
+                        })
+                    }
+                )
+            }
+            CustomerBookingPage.Tracking -> {
+                LaunchedEffect(Unit) {
+                    customerViewModel.fetchTrackingPath()
+                    customerViewModel.fetchDriverLocation()
+                }
+                TrackDriverScreen (
+                    driverRoute = customerViewModel.routeTrackingPoints,
+                    customerViewModel = customerViewModel,
+                    onHomeClick    = args.onHomeClick,
+                    onOrdersClick  = args.onOrdersClick,
+                    onHistoryClick = args.onHistoryClick,
+                    onChatClick    = args.onChatClick,
+                    onProfileClick = args.onProfileClick,
+                    currentTab = args.tab
+                )
+            }
+            CustomerBookingPage.ResearchRoute -> {
+
+                ResearchRouteScreen(
+                    customerViewModel = customerViewModel,
+                    onBookNow = {
+                        customerViewModel.updateRouteAndSearch(
                             onSuccess = {
                                 navController.navigate(CustomerNewShipment(CustomerNewShipmentPage.FindingTruck))
                             },
-                            onError = { }
-                        )
-                    },
-                    onShipmentDetailsClick = { shipment ->
-                    }
+                        )},
+                    onHomeClick    = args.onHomeClick,
+                    onOrdersClick  = args.onOrdersClick,
+                    onHistoryClick = args.onHistoryClick,
+                    onChatClick    = args.onChatClick,
+                    onProfileClick = args.onProfileClick,
+                    currentTab = args.tab
                 )
             }
             CustomerBookingPage.Details -> {
@@ -522,24 +560,51 @@ fun NavGraphBuilder.customerGraph(
 
     // ── PROFILE (TAB 5) ──
     composable<CustomerProfile> {
+        LaunchedEffect(Unit) {
+            customerViewModel.fetchReviews(session.userId)
+            customerViewModel.fetchAverageRating(session.userId)
+        }
         val page = it.toRoute<CustomerProfile>().page
         val args = sharedArgs()
         when (page) {
             CustomerProfilePage.Main -> {
                 CustomerProfileScreen(
-                    fullName               = session.userFullName,
-                    profileImageUrl        = session.userProfileImageUrl,
-                    currentTab             = args.tab,
-                    onHomeClick            = { navController.navigateTab(CustomerDashboard()) },
-                    onOrdersClick          = { navController.navigateTab(CustomerNewShipment()) },
-                    onHistoryClick         = { navController.navigateTab(CustomerBookings()) },
-                    onChatClick            = { navController.navigateTab(CustomerChat()) },
-                    onProfileClick         = { navController.navigateTab(CustomerProfile()) },
-                    onBookingDetailsClick  = { navController.navigate(CustomerBookings()) },
-                    onRequestHistoryClick  = { navController.navigate(CustomerProfile(CustomerProfilePage.RequestHistory)) },
-                    onReviewsClick  = { navController.navigate(CustomerProfile(CustomerProfilePage.AllReviews)) },
-                    onYourInformationClick = { },
-                    onLogoutClick          = { authViewModel.logout() }
+                    fullName = session.userFullName,
+                    profileImageUrl = session.userProfileImageUrl,
+                    currentTab = args.tab,
+                    numberOfReviews = customerViewModel.reviews.size,
+                    rating = customerViewModel.averageRating,
+                    onHomeClick = { navController.navigateTab(CustomerDashboard()) },
+                    onOrdersClick = { navController.navigateTab(CustomerNewShipment()) },
+                    onHistoryClick = { navController.navigateTab(CustomerBookings()) },
+                    onChatClick = { navController.navigateTab(CustomerChat()) },
+                    onProfileClick = { navController.navigateTab(CustomerProfile()) },
+                    onRequestHistoryClick = { navController.navigate(CustomerProfile(CustomerProfilePage.RequestHistory)) },
+                    onReviewsClick = { navController.navigate(CustomerProfile(CustomerProfilePage.AllReviews)) },
+                    onYourInformationClick = {
+                        navController.navigate(
+                            CustomerProfile(
+                                CustomerProfilePage.YourInformation
+                            )
+                        )
+                    },
+                    onLogoutClick = { authViewModel.logout() }
+                )
+            }
+            CustomerProfilePage.YourInformation -> {
+                CustomerInformationScreen(
+                    fullName = session.userFullName,
+                    phone = session.userContact,
+                    email = session.userEmail,
+                    address = session.userStreetAddress,
+                    city = session.userCity,
+                    cnic = session.userCNIC,
+                    onBack = { navController.popBackStack() },
+                    onHomeClick = { navController.navigateTab(CustomerDashboard()) },
+                    onOrdersClick = { navController.navigateTab(CustomerNewShipment()) },
+                    onHistoryClick = { navController.navigateTab(CustomerBookings()) },
+                    onChatClick = { navController.navigateTab(CustomerChat()) },
+                    onProfileClick = { navController.navigateTab(CustomerProfile()) },
                 )
             }
             CustomerProfilePage.RequestHistory -> {
@@ -558,13 +623,9 @@ fun NavGraphBuilder.customerGraph(
                     onProfileClick = args.onProfileClick
                 )
             }
-            CustomerProfilePage.YourInformation,
             CustomerProfilePage.EditInformation,
             CustomerProfilePage.AllReviews -> {
-                LaunchedEffect(Unit) {
-                    customerViewModel.fetchReviews(session.userId)
-                    customerViewModel.fetchAverageRating(session.userId)
-                }
+
                 CustomerReviewsScreen(
                     reviews = customerViewModel.reviews,
                     averageRating = customerViewModel.averageRating,

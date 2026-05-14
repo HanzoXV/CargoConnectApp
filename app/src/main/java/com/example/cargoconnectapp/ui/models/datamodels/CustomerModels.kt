@@ -2,6 +2,22 @@ package com.example.cargoconnectapp.ui.models.datamodels
 
 import com.google.gson.annotations.SerializedName
 
+data class UpdateShipmentRouteRequest(
+    val shipment_id: Int,
+    val pickup_lat: Double,
+    val pickup_long: Double,
+    val pickup_address: String,
+    val delivery_lat: Double,
+    val delivery_long: Double,
+    val delivery_address: String,
+    val strict: Boolean,
+    val shipment_type: String,
+    val shipment_radius: Double
+)
+data class ShipmentUpdateResponse(
+    val shipmentId: Int,
+    val message: String
+)
 data class CustomerBookingDto(
     val driver_user_id: Int?,
     @SerializedName(value = "id", alternate = ["Id", "ID", "booking_id", "BookingId"]) val id: Int,

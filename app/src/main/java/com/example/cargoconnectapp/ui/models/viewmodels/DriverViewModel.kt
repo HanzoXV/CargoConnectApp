@@ -42,9 +42,6 @@ class DriverViewModel : ViewModel() {
 
     var currentLocation by mutableStateOf(0.0 to 0.0)
 
-    var routeTrackingPoints = mutableStateListOf<GeoPoint>()
-        private set
-
     var isTruckAnimating by mutableStateOf(false)
     var pendingConfirmAction: (() -> Unit)? = null
 
@@ -187,7 +184,6 @@ class DriverViewModel : ViewModel() {
         activeRoute = null
         nextRoute = null
         pastRoutes = emptyList()
-        routeTrackingPoints.clear()
         totalStops = 0
         completedStops = 0
         distances.clear()
@@ -303,23 +299,7 @@ class DriverViewModel : ViewModel() {
             }
         }
     }
-    fun fetchTrackingPath(driverId: Int) {
-        viewModelScope.launch {
-            try {
-                val response = RetrofitClient.instance.trackDriverRoute(driverId)
-                if (response.isSuccessful) {
-                    val points = response.body()?.map {
-                        GeoPoint(it.latitude, it.longitude)
-                    } ?: emptyList()
 
-                    routeTrackingPoints.clear()
-                    routeTrackingPoints.addAll(points)
-                }
-            } catch (e: Exception) {
-                Log.e("DriverViewModel", "Failed to fetch tracking path", e)
-            }
-        }
-    }
     fun fetchTruckInfo(driverId: Int) {
         viewModelScope.launch {
             isLoading = true

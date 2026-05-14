@@ -58,15 +58,30 @@ interface ApiInterface {
     suspend fun updateDriverLocation(@Body request: DriverLocationRequestDto
     ): Response<DriverLocationRequestDto>
 
-    @GET("api/driver/track-route-points/{driverId}")
+    @GET("api/driver/track-route-points/{bookingId}")
     suspend fun trackDriverRoute(
-        @Path("driverId") driverId: Int
+        @Path("bookingId") bookingId: Int
     ): Response<List<RoutePointDto>>
 
-    @GET("api/drivers/location/{driverId}")
+    @GET("api/drivers/location/{bookingId}")
     suspend fun getDriverLocation(
-        @Path("driverId") driverId: Int
+        @Path("bookingId") bookingId: Int
     ): Response<DriverLocationResponseDto>
+
+    @POST("api/shipments/update-route")
+    suspend fun updateShipmentRoute(
+        @Body request: UpdateShipmentRouteRequest
+    ): Response<ShipmentUpdateResponse>
+
+    @DELETE("api/shipments/delete/{shipmentId}")
+    suspend fun deleteShipment(
+        @Path("shipmentId") shipmentId: Int
+    ): Response<String>
+
+    @GET("api/shipments/details/{shipmentId}")
+    suspend fun getShipmentDetails(
+        @Path("shipmentId") shipmentId: Int
+    ): Response<UpdateShipmentRouteRequest>
 
     // ── Shipments ─────────────────────────────────────────────────────────────
     @POST("api/shipments/draft/{customerId}")

@@ -19,6 +19,8 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 class CustomerViewModel : ViewModel() {
+
+    var routeTrackingPoints = mutableStateListOf<GeoPoint>()
     var assignedShipmentId by mutableStateOf<Int?>(null)
     var currentCustomerId by mutableStateOf<Int?>(null)
 
@@ -60,6 +62,8 @@ class CustomerViewModel : ViewModel() {
     var pickupPoint by mutableStateOf("")
     var destination by mutableStateOf("")
     var pickupGeoPoint by mutableStateOf<GeoPoint?>(null)
+
+    var driverLocation by mutableStateOf<GeoPoint?>(null)
     var destinationGeoPoint by mutableStateOf<GeoPoint?>(null)
     var selectedLocalDate by mutableStateOf<LocalDate?>(null)
     var isStrictSchedule by mutableStateOf(false)
@@ -83,6 +87,8 @@ class CustomerViewModel : ViewModel() {
         private set
     var totalReviews by mutableIntStateOf(0)
         private set
+
+    var selectedShipmentId by mutableIntStateOf(0)
 
     // Available Trucks
     var availableTrucks = mutableStateListOf<AvailabilityDto>()
@@ -143,7 +149,40 @@ class CustomerViewModel : ViewModel() {
         chatThreads = emptyList()
     }
 
-    // ── API Spot 1: Dashboard Load ───────────────────────────────────────────
+    fun fetchDriverLocation() {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.instance.getDriverLocation(selectedBooking?.id ?: -1)
+                if (response.isSuccessful) {
+                    val data = response.body()
+                    if (data != null) {
+                        driverLocation = GeoPoint(data.latitude, data.longitude)
+                    }
+                } else {
+                    Log.e("CustomerViewModel", "Failed to fetch location: ${response.errorBody()?.string()}")
+                }
+            } catch (e: Exception) {
+                Log.e("CustomerViewModel", "Exception during location tracking", e)
+            }
+        }
+    }
+    fun fetchTrackingPath() {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.instance.trackDriverRoute(selectedBooking?.id ?: -1)
+                if (response.isSuccessful) {
+                    val points = response.body()?.map {
+                        GeoPoint(it.latitude, it.longitude)
+                    } ?: emptyList()
+
+                    routeTrackingPoints.clear()
+                    routeTrackingPoints.addAll(points)
+                }
+            } catch (e: Exception) {
+                Log.e("DriverViewModel", "Failed to fetch tracking path", e)
+            }
+        }
+    }
     fun createOrGetDraft(customerId: Int) {
         currentCustomerId = customerId
         if (assignedShipmentId != null) return
@@ -278,7 +317,28 @@ class CustomerViewModel : ViewModel() {
             }
         }
     }
+    fun deleteShipment(shipmentId: Int, onComplete: () -> Unit) {
+        viewModelScope.launch {
+            isLoading = true
+            try {
+                val response = RetrofitClient.instance.deleteShipment(shipmentId)
+                if (response.isSuccessful) {
+                    if (selectedShipmentId == shipmentId) {
+                        selectedShipmentId = 0
 
+                        pendingShipments.removeIf { shipmentId == selectedShipmentId }
+                    }
+                    onComplete()
+                } else {
+                    errorMessage = response.errorBody()?.string() ?: "Failed to delete shipment"
+                }
+            } catch (e: Exception) {
+                errorMessage = e.message
+            } finally {
+                isLoading = false
+            }
+        }
+    }
     fun addRecentPackageLocally(pkg: RecentPackageDto) {
         val newPkg = Package(
             name = pkg.name,
@@ -288,7 +348,68 @@ class CustomerViewModel : ViewModel() {
         )
         addedPackages.add(newPkg)
     }
+    fun loadShipmentForResearch() {
+        viewModelScope.launch {
+            isLoading = true
+            try {
+                val response = RetrofitClient.instance.getShipmentDetails(selectedShipmentId)
+                if (response.isSuccessful) {
+                    val details = response.body()
+                    details?.let {
+                        pickupGeoPoint = GeoPoint(it.pickup_lat, it.pickup_long)
+                        destinationGeoPoint = GeoPoint(it.delivery_lat, it.delivery_long)
+                        pickupPoint = it.pickup_address
+                        destination = it.delivery_address
+                        radius = it.shipment_radius
+                        isStrictSchedule = it.strict
+                        shipmentType = it.shipment_type
+                    }
+                } else {
+                    errorMessage = "Could not load shipment details"
+                }
+            } catch (e: Exception) {
+                errorMessage = e.message
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+    @RequiresApi(Build.VERSION_CODES.O)
+    fun updateRouteAndSearch(onSuccess: () -> Unit) {
+        val request = UpdateShipmentRouteRequest (
+            shipment_id = selectedShipmentId,
+            pickup_lat =  pickupGeoPoint?.latitude ?: 0.0,
+            pickup_long =  pickupGeoPoint?.longitude ?: 0.0,
+            pickup_address =  pickupPoint,
+            delivery_lat =  destinationGeoPoint?.latitude ?: 0.0,
+            delivery_long =  destinationGeoPoint?.longitude ?: 0.0,
+            delivery_address =  destination,
+            strict =  isStrictSchedule,
+            shipment_type =  shipmentType,
+            shipment_radius =  radius
+        )
+        viewModelScope.launch {
+            isLoading = true
+            try {
+                val response = RetrofitClient.instance.updateShipmentRoute(request)
+                if (response.isSuccessful) {
 
+                    searchAvailableTrucks(
+                        shipmentId = request.shipment_id,
+                        isStrict = request.strict,
+                        onSuccess = onSuccess,
+                        onError = { errorMessage = it }
+                    )
+                } else {
+                    errorMessage = "Failed to update route preferences"
+                }
+            } catch (e: Exception) {
+                errorMessage = e.message
+            } finally {
+                isLoading = false
+            }
+        }
+    }
     fun fetchPendingShipments(customerId: Int) {
         viewModelScope.launch {
             isLoading = true

@@ -2328,6 +2328,8 @@ fun CustomerShipmentsDetailScreen(
         phone: String = "",
         email: String = "",
         cnic: String = "",
+        address: String = "",
+        city: String = "",
         licenseNo: String = "",
         onBack: () -> Unit = {},
         onEditClick: () -> Unit = {},
@@ -2385,7 +2387,22 @@ fun CustomerShipmentsDetailScreen(
                         modifier = Modifier.padding(vertical = 12.dp),
                         color = Color.Gray.copy(alpha = 0.1f)
                     )
+                    DetailRow("CNIC", cnic)
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 12.dp),
+                        color = Color.Gray.copy(alpha = 0.1f)
+                    )
                     DetailRow("License", licenseNo)
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 12.dp),
+                        color = Color.Gray.copy(alpha = 0.1f)
+                    )
+                    DetailRow("Address", address)
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 12.dp),
+                        color = Color.Gray.copy(alpha = 0.1f)
+                    )
+                    DetailRow("City", city)
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))

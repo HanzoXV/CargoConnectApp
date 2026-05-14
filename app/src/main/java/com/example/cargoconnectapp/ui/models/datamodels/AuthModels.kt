@@ -72,5 +72,7 @@ data class UserDataResponse(
     @SerializedName("city")
     val city: String?,
     @SerializedName("profileImageUrl")
-    val profileImageUrl: String?
+    val profileImageUrl: String?,
+    @SerializedName("cnic")
+    val cnic: String?
 )
