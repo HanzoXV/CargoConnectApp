@@ -23,7 +23,9 @@ import java.time.format.DateTimeFormatter
 import androidx.navigation.NavGraphBuilder
 import com.example.cargoconnectapp.ui.models.datamodels.RouteCheckpointUpdate
 import com.example.cargoconnectapp.ui.models.datamodels.UpdateRouteRequest
+import com.example.cargoconnectapp.ui.models.services.startTruckAnimationService
 import com.example.cargoconnectapp.ui.models.viewmodels.CustomerViewModel
+import org.osmdroid.util.GeoPoint
 
 @RequiresApi(Build.VERSION_CODES.O)
 @androidx.annotation.RequiresPermission(allOf = [android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION])
@@ -52,6 +54,8 @@ fun NavGraphBuilder.driverGraph(
 
     // ── HOME ──
     composable<DriverDashboard>  { backStackEntry ->
+
+        val context = LocalContext.current
         val page = backStackEntry.toRoute<DriverDashboard>().page
 
         LaunchedEffect(Unit) { driverViewModel.fetchActiveRoute(session.roleBasedId) }
@@ -167,39 +171,43 @@ fun NavGraphBuilder.driverGraph(
                         },
                         onReviewDismiss = { driverViewModel.dismissReview() },
                         onConfirm = {
-                            Log.d("CONFIRM", "onConfirm fired. isStartCheckpoint=${driverViewModel.isStartCheckpoint}")
-                            isNavigating.value = true
                             if (driverViewModel.isStartCheckpoint) {
-                                Log.d("CONFIRM", "Taking start branch. checkpointId=${data.checkpoint_id}")
-                                driverViewModel.pendingTruckAnimation = Pair(0, 0)
+                                // Start of trip — no animation, just API call
                                 driverViewModel.startTrip(data.checkpoint_id, session.roleBasedId) {
-                                    Log.d("CONFIRM", "startTrip callback fired, navigating")
                                     navController.navigate(DriverDashboard(DriverDashboardPage.TripInfo)) {
-                                        popUpTo(DriverDashboard(DriverDashboardPage.ConfirmDelivery)) { inclusive = true }
-                                    }
-                                }
-                            } else {
-                                Log.d("CONFIRM", "Taking else branch")
-                                val confirmedIndex = driverViewModel.activeRoute?.checkpoints
-                                    ?.sortedBy { it.sequenceNo }
-                                    ?.indexOfFirst { it.checkpointId == data.checkpoint_id } ?: -1
-
-                                if (confirmedIndex > 0) {
-                                    driverViewModel.pendingTruckAnimation = Pair(confirmedIndex - 1, confirmedIndex)
-                                }
-
-                                // Store the API call, run after animation finishes
-                                driverViewModel.pendingConfirmAction = {
-                                    driverViewModel.confirmCheckpoint(data.checkpoint_id, session.roleBasedId) {
-                                        navController.navigate(DriverDashboard(DriverDashboardPage.TripInfo)) {
-                                            popUpTo(DriverDashboard(DriverDashboardPage.ConfirmDelivery)) { inclusive = true }
+                                        popUpTo(DriverDashboard(DriverDashboardPage.ConfirmDelivery)) {
+                                            inclusive = true
                                         }
                                     }
                                 }
+                            } else {
+                                val checkpoints = driverViewModel.activeRoute?.checkpoints?.sortedBy { it.sequenceNo }
+                                val confirmedIndex = checkpoints?.indexOfFirst { it.checkpointId == data.checkpoint_id } ?: -1
 
-                                // Navigate back to see the animation
-                                navController.navigate(DriverDashboard(DriverDashboardPage.TripInfo)) {
-                                    popUpTo(DriverDashboard(DriverDashboardPage.ConfirmDelivery)) { inclusive = true }
+                                if (confirmedIndex > 0) {
+                                    val fromGeo = checkpoints!![confirmedIndex - 1].let {
+                                        GeoPoint(it.latitude ?: 0.0, it.longitude ?: 0.0)
+                                    }
+                                    val toGeo = checkpoints[confirmedIndex].let {
+                                        GeoPoint(it.latitude ?: 0.0, it.longitude ?: 0.0)
+                                    }
+
+                                    // Set up service params via ViewModel
+                                    driverViewModel.pendingAnimationFrom = fromGeo
+                                    driverViewModel.pendingAnimationTo   = toGeo
+                                    driverViewModel.pendingCheckpointId  = data.checkpoint_id
+                                    driverViewModel.pendingDriverId      = session.roleBasedId
+                                    driverViewModel.pendingConfirmAction = null  // service handles completion now
+
+                                    // Start the foreground service
+                                    context.startTruckAnimationService()
+
+                                    // Navigate back to map so user sees the animation
+                                    navController.navigate(DriverDashboard(DriverDashboardPage.TripInfo)) {
+                                        popUpTo(DriverDashboard(DriverDashboardPage.ConfirmDelivery)) {
+                                            inclusive = true
+                                        }
+                                    }
                                 }
                             }
                         },

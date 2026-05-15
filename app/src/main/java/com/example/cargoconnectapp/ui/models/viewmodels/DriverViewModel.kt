@@ -132,6 +132,11 @@ class DriverViewModel : ViewModel() {
     var totalReviews by mutableIntStateOf(0)
         private set
 
+    var pendingAnimationFrom by mutableStateOf<GeoPoint?>(null)
+    var pendingAnimationTo   by mutableStateOf<GeoPoint?>(null)
+    var pendingCheckpointId  by mutableIntStateOf(-1)
+    var pendingDriverId      by mutableIntStateOf(-1)
+
     // ── Route Planning State (Temporary) ──────────────────────────────────────
     
     var plannedPoints = mutableStateListOf<GeoPoint>()

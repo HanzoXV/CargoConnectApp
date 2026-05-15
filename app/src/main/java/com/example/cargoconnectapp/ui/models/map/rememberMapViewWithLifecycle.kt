@@ -43,6 +43,7 @@ import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import java.util.Locale
 import androidx.core.graphics.toColorInt
+import com.example.cargoconnectapp.ui.models.services.rememberTruckAnimationService
 import com.example.cargoconnectapp.ui.models.viewmodels.CustomerViewModel
 import com.example.cargoconnectapp.ui.models.viewmodels.DriverViewModel
 import org.osmdroid.events.MapListener
@@ -128,6 +129,8 @@ fun OSMContainer(
     trackDriver: Boolean = false
     // ─────────────────────────────────────────────────────────────────────────
 ) {
+
+
     val context = LocalContext.current
     org.osmdroid.config.Configuration.getInstance().userAgentValue = context.packageName
 
@@ -350,7 +353,7 @@ fun OSMContainer(
     }
 
     // ── Effect 4: Truck animation (tracking mode only) ────────────────────────
-    LaunchedEffect(truckAnimationEvent) {
+    /*LaunchedEffect(truckAnimationEvent) {
         if (!isTrackingMode || truckAnimationEvent == null) return@LaunchedEffect
         if (animating.value) return@LaunchedEffect
         if (!initialized) return@LaunchedEffect
@@ -429,6 +432,58 @@ fun OSMContainer(
             action?.invoke()  // this may clear activeRoute/points — safe now
         }
     }
+     */
+
+    // ── Effect 4: Subscribe to the live TruckAnimationService ────────────────
+
+    // Re-register callbacks whenever the service instance changes (e.g. after
+    // the user navigated away and came back).
+    // 1. Register UI callbacks when service connects
+    val animService by rememberTruckAnimationService()
+
+    LaunchedEffect(animService) {
+        val svc = animService ?: return@LaunchedEffect
+
+        // Snap to current position if animation already running (user came back)
+        svc.currentPosition?.let { pos ->
+            placeTruckAt(context, mapView, truckMarker, pos, svc.currentBearing)
+            mapView.controller.setZoom(16.0)
+            mapView.controller.setCenter(pos)
+        }
+
+        svc.onPositionChanged = { position, bearing, _ ->
+            placeTruckAt(context, mapView, truckMarker, position, bearing)
+            mapView.controller.setZoom(16.0)
+            mapView.controller.setCenter(position)
+            mapView.invalidate()
+        }
+
+        svc.onAnimationComplete = {
+            driverViewModel?.isTruckAnimating = false
+            // Navigation is handled by pendingConfirmAction if needed
+            // Refresh route state so dashboard updates
+            driverViewModel?.fetchActiveRoute(driverId)
+        }
+    }
+
+// 2. Start animation when ViewModel signals new from/to
+    LaunchedEffect(animService, driverViewModel?.pendingAnimationFrom, driverViewModel?.pendingAnimationTo) {
+        val svc  = animService ?: return@LaunchedEffect
+        val from = driverViewModel?.pendingAnimationFrom ?: return@LaunchedEffect
+        val to   = driverViewModel?.pendingAnimationTo   ?: return@LaunchedEffect
+
+        if (svc.isAnimating) return@LaunchedEffect
+
+        svc.checkpointId       = driverViewModel.pendingCheckpointId
+        svc.driverIdForConfirm = driverViewModel.pendingDriverId
+
+        // Consume the signal
+        driverViewModel.pendingAnimationFrom = null
+        driverViewModel.pendingAnimationTo   = null
+
+        svc.startAnimation(driverId = driverId, from = from, to = to)
+    }
+
 
     // ── AndroidView factory ───────────────────────────────────────────────────
     AndroidView(
@@ -566,27 +621,27 @@ private fun zoomToFitPoints(mapView: MapView, points: List<GeoPoint>) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 fun drawFullRoute(context: Context, mapView: MapView, points: List<GeoPoint>) {
-    if (mapView == null || points.size < 2) return
+    if (points.size < 2) return
 
-    // 1. Create Polyline IMMEDIATELY on Main thread to avoid Repository NPE
     val polyline = Polyline(mapView).apply {
-        infoWindow = null // Disable InfoWindow to skip the internal getRepository() call
+        infoWindow = null
         outlinePaint.color = "#6236B5".toColorInt()
         outlinePaint.strokeWidth = 12f
         outlinePaint.isAntiAlias = true
         outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
-        outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+        outlinePaint.strokeCap  = android.graphics.Paint.Cap.ROUND
     }
 
-    val roadManager: RoadManager = OSRMRoadManager(context, context.packageName)
-
-    // 2. Use a specific CoroutineScope that won't leak
     CoroutineScope(Dispatchers.IO).launch {
         try {
-            val road = roadManager.getRoad(ArrayList(points))
+            val rm = OSRMRoadManager(context, context.packageName).apply {
+                setMean(OSRMRoadManager.MEAN_BY_CAR)         // driving profile
+                setService("https://router.project-osrm.org/") // Fixed URL root
+            }
+
+            val road = rm.getRoad(ArrayList(points))
 
             withContext(Dispatchers.Main) {
-                // Verify MapView is still valid/attached before updating
                 if (road != null && road.mRouteHigh.isNotEmpty() && mapView.isAttachedToWindow) {
                     polyline.setPoints(road.mRouteHigh)
                     mapView.overlays.add(0, polyline)
@@ -594,7 +649,7 @@ fun drawFullRoute(context: Context, mapView: MapView, points: List<GeoPoint>) {
                 }
             }
         } catch (e: Exception) {
-            Log.e("MAP_DRAW", "Failed to draw route", e)
+            Log.e("MAP_DRAW", "Failed to draw route: ${e.message}")
         }
     }
 }
