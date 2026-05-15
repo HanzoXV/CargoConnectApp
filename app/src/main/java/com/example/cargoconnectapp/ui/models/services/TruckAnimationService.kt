@@ -16,6 +16,7 @@ import com.example.cargoconnectapp.data.RetrofitClient
 import com.example.cargoconnectapp.ui.models.datamodels.DriverLocationRequestDto
 import kotlinx.coroutines.*
 import org.osmdroid.bonuspack.routing.OSRMRoadManager
+import org.osmdroid.bonuspack.routing.RoadManager
 import org.osmdroid.util.GeoPoint
 import java.time.LocalDateTime
 import kotlin.math.*
@@ -147,10 +148,8 @@ class TruckAnimationService : Service() {
         // Fetch road geometry on IO so we get a realistic path
         val roadPoints: List<GeoPoint> = withContext(Dispatchers.IO) {
             try {
-                val rm = OSRMRoadManager(applicationContext, packageName).apply {
-                    setMean(OSRMRoadManager.MEAN_BY_CAR)
-                    setService("https://router.project-osrm.org/")
-                }
+                val rm: RoadManager = OSRMRoadManager(applicationContext, packageName)
+                rm.addRequestOption("steps=false")
                 val road = rm.getRoad(arrayListOf(from, to))
                 road.mRouteHigh.ifEmpty { listOf(from, to) }
             } catch (e: Exception) {

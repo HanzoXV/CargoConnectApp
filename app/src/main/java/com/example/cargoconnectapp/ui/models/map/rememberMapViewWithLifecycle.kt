@@ -621,27 +621,28 @@ private fun zoomToFitPoints(mapView: MapView, points: List<GeoPoint>) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 fun drawFullRoute(context: Context, mapView: MapView, points: List<GeoPoint>) {
-    if (points.size < 2) return
+    if (mapView == null || points.size < 2) return
 
+    // 1. Create Polyline IMMEDIATELY on Main thread to avoid Repository NPE
     val polyline = Polyline(mapView).apply {
-        infoWindow = null
+        infoWindow = null // Disable InfoWindow to skip the internal getRepository() call
         outlinePaint.color = "#6236B5".toColorInt()
         outlinePaint.strokeWidth = 12f
         outlinePaint.isAntiAlias = true
         outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
-        outlinePaint.strokeCap  = android.graphics.Paint.Cap.ROUND
+        outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
     }
 
+    val roadManager: RoadManager = OSRMRoadManager(context, context.packageName)
+    roadManager.addRequestOption("steps=false")
+
+    // 2. Use a specific CoroutineScope that won't leak
     CoroutineScope(Dispatchers.IO).launch {
         try {
-            val rm = OSRMRoadManager(context, context.packageName).apply {
-                setMean(OSRMRoadManager.MEAN_BY_CAR)         // driving profile
-                setService("https://router.project-osrm.org/") // Fixed URL root
-            }
-
-            val road = rm.getRoad(ArrayList(points))
+            val road = roadManager.getRoad(ArrayList(points))
 
             withContext(Dispatchers.Main) {
+                // Verify MapView is still valid/attached before updating
                 if (road != null && road.mRouteHigh.isNotEmpty() && mapView.isAttachedToWindow) {
                     polyline.setPoints(road.mRouteHigh)
                     mapView.overlays.add(0, polyline)
@@ -649,7 +650,7 @@ fun drawFullRoute(context: Context, mapView: MapView, points: List<GeoPoint>) {
                 }
             }
         } catch (e: Exception) {
-            Log.e("MAP_DRAW", "Failed to draw route: ${e.message}")
+            Log.e("MAP_DRAW", "Failed to draw route", e)
         }
     }
 }
