@@ -1,8 +1,6 @@
 package com.example.cargoconnectapp.ui.models.viewmodels
 
-import android.net.Uri
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -39,8 +37,8 @@ class UserSessionViewModel : ViewModel() {
         private set
     var userProfileImageUrl by mutableStateOf<String?>(null)
         private set
-    var activeRouteId by mutableIntStateOf(-1)
-        private set
+    //var activeRouteId by mutableIntStateOf(-1)
+      //  private set
 
     var currentDriverTab by mutableStateOf<DriverDestination>(DriverDashboard())
         private set

@@ -60,9 +60,9 @@ object PackageColorPool {
         return androidx.compose.ui.graphics.Color(hex)
     }
 
-    fun getColorOrNull(colorName: String?): androidx.compose.ui.graphics.Color? {
+    /*fun getColorOrNull(colorName: String?): androidx.compose.ui.graphics.Color? {
         val hex = colors.firstOrNull { it.first.equals(colorName, ignoreCase = true) }?.second
             ?: return null
         return androidx.compose.ui.graphics.Color(hex)
-    }
+    }*/
 }

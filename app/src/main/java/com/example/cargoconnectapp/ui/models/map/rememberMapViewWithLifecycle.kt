@@ -4,7 +4,6 @@ import com.example.cargoconnectapp.R
 import android.Manifest
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.Matrix
 import android.location.Geocoder
 import android.os.Build
@@ -20,7 +19,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalContext
@@ -32,7 +30,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.*
 import org.osmdroid.bonuspack.routing.OSRMRoadManager
-import org.osmdroid.bonuspack.routing.Road
 import org.osmdroid.bonuspack.routing.RoadManager
 import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.util.BoundingBox
@@ -173,7 +170,7 @@ fun OSMContainer(
         mapView.addMapListener(listener)
         onDispose { mapView.removeMapListener(listener) }
     }
-    customerViewModel
+    //customerViewModel
     if (trackDriver) {
         // Auto-center map on first valid location
         LaunchedEffect(customerViewModel?.driverLocation) {

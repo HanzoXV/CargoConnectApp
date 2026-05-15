@@ -22,6 +22,7 @@ import kotlinx.coroutines.delay
 import org.osmdroid.util.GeoPoint
 
 @RequiresApi(Build.VERSION_CODES.O)
+@androidx.annotation.RequiresPermission(allOf = [android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION])
 fun NavGraphBuilder.customerGraph(
     navController: NavHostController,
     session: UserSessionViewModel,
@@ -91,7 +92,7 @@ fun NavGraphBuilder.customerGraph(
                     onHistoryClick       = args.onHistoryClick,
                     onChatClick          = args.onChatClick,
                     onProfileClick       = args.onProfileClick,
-                    onNewBookingClick    = { navController.navigate(CustomerNewShipment()) },
+                    //onNewBookingClick    = { navController.navigate(CustomerNewShipment()) },
                     onDetailsClick       = { booking -> 
                         customerViewModel.selectedBooking = customerViewModel.customerBookings.find { it.id == booking.id }
                         navController.navigate(CustomerBookings(CustomerBookingPage.Details)) 
@@ -142,7 +143,7 @@ fun NavGraphBuilder.customerGraph(
     }
 
     // ── NEW SHIPMENT ──
-    composable<CustomerNewShipment> @androidx.annotation.RequiresPermission(allOf = [android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION]) {
+    composable<CustomerNewShipment>  {
         val page = it.toRoute<CustomerNewShipment>().page
         val args = sharedArgs()
         when (page) {
@@ -159,7 +160,7 @@ fun NavGraphBuilder.customerGraph(
                     onRemovePackage = { pkg -> customerViewModel.removePackage(pkg) },
                     onQuickAdd = { customerViewModel.addRecentPackageLocally(it) },
                     onNext = { navController.navigate(CustomerNewShipment(CustomerNewShipmentPage.ChooseLocation)) },
-                    onBack = { navController.popBackStack() },
+                    //onBack = { navController.popBackStack() },
                     onCancel = {
                         customerViewModel.addedPackages.clear()
                         navController.popBackStack()

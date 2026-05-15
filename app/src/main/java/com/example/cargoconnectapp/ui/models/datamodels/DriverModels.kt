@@ -73,12 +73,12 @@ data class Package(
     val keepUpright: Boolean = false
 )
 
-data class AvailableTruck(
+/*data class AvailableTruck(
     val shipmentTitle: String,
     val route: String,
     val amount: String,
     val badge: TruckBadge
-)
+)*/
 
 enum class TruckBadge { Shared, Full }
 

@@ -30,7 +30,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.os.Build
-import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import androidx.compose.foundation.layout.Arrangement
@@ -48,10 +47,6 @@ import com.example.cargoconnectapp.ui.themes.*
 import com.example.cargoconnectapp.ui.models.map.OSMContainer
 import com.example.cargoconnectapp.ui.models.map.getAddressFromGeoPoint
 import com.example.cargoconnectapp.data.RetrofitClient
-import com.example.cargoconnectapp.ui.models.destinations.CustomerBookingPage
-import com.example.cargoconnectapp.ui.models.destinations.CustomerBookings
-import com.example.cargoconnectapp.ui.models.destinations.DriverDashboard
-import com.example.cargoconnectapp.ui.models.destinations.DriverDestination
 import kotlinx.coroutines.delay
 import org.osmdroid.util.GeoPoint
 import java.time.ZonedDateTime
@@ -87,7 +82,6 @@ fun ChatThreadDto.toChatContact() = ChatContact(
 fun CustomerDashboardScreen(
     customerViewModel: CustomerViewModel,
     bookings: List<CustomerBooking> = emptyList(),
-    onNewBookingClick: () -> Unit = {},
     onDetailsClick: (CustomerBooking) -> Unit = {},
     onContactDriverClick: (CustomerBooking) -> Unit = {},
     onTrackClick: (CustomerBooking) -> Unit = {},
@@ -231,7 +225,7 @@ fun NewShipmentPackagesScreen(
     onAddNewPackage: () -> Unit = {},
     onRemovePackage: (Package) -> Unit = {},
     onQuickAdd: (RecentPackageDto) -> Unit = {},
-    onBack: () -> Unit = {},
+    //onBack: () -> Unit = {},
     onNext: () -> Unit = {},
     onCancel: () -> Unit = {},   // clears list + goes back
     onHomeClick: () -> Unit = {},
@@ -990,6 +984,8 @@ fun PackagePreferenceTag(text: String, color: Color) {
 }
 
 @RequiresApi(Build.VERSION_CODES.O)
+@androidx.annotation.RequiresPermission(
+    allOf = [android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION])
 @Composable
 fun DriverDetailsScreen(
     truck: AvailabilityDto,
@@ -1042,7 +1038,8 @@ fun DriverDetailsScreen(
     ) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             // Map Section (Route)
-            Box(modifier = Modifier.weight(0.4f).fillMaxWidth()) {
+            Box(modifier = Modifier.weight(0.4f).fillMaxWidth())
+            {
                 OSMContainer(points = routePoints)
                 IconButton(
                     onClick = onBack, 
@@ -1121,6 +1118,8 @@ fun DriverDetailsScreen(
 // TAB 3 & 4 & 5
 // ─────────────────────────────────────────────
 @RequiresApi(Build.VERSION_CODES.O)
+@androidx.annotation.RequiresPermission(
+    allOf = [android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION])
 @Composable
 fun TrackDriverScreen(
     driverRoute: List<GeoPoint>,
@@ -1150,6 +1149,7 @@ fun TrackDriverScreen(
         }
     }
 }
+@RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun YourBookingsScreen(
     userID: Int,

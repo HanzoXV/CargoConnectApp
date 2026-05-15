@@ -2,7 +2,6 @@ package com.example.cargoconnectapp.ui.models.viewmodels
 
 import android.os.Build
 import android.util.Log
-import kotlin.math.*
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
@@ -10,7 +9,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.cargoconnectapp.data.RetrofitClient
@@ -18,16 +16,10 @@ import com.example.cargoconnectapp.ui.models.datamodels.*
 import com.example.cargoconnectapp.ui.models.datamodels.CheckpointShipmentsResponse
 import com.example.cargoconnectapp.ui.navigation.screens.ShipmentRequest
 import com.example.cargoconnectapp.ui.models.helpermodels.Dimensions
-import com.example.cargoconnectapp.ui.navigation.screens.ShipmentDetail
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import org.osmdroid.util.GeoPoint
-import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
-import kotlin.math.cos
-import kotlin.math.pow
-import kotlin.math.sin
 
 enum class RouteTarget { ACTIVE, NEXT }
 
@@ -518,7 +510,7 @@ class DriverViewModel : ViewModel() {
         }
     }
 
-    fun activateRoute(routeId: Int, driverId: Int) {
+    /*fun activateRoute(routeId: Int, driverId: Int) {
         viewModelScope.launch {
             isLoading = true
             errorMessage = null
@@ -549,7 +541,7 @@ class DriverViewModel : ViewModel() {
                 isLoading = false
             }
         }
-    }
+    }*/
     fun updateRoute(
         request: UpdateRouteRequest,
         driverId: Int,
@@ -587,7 +579,7 @@ class DriverViewModel : ViewModel() {
         }
     }
 
-    fun deleteRoute(routeId: Int, driverId: Int) {
+    /*fun deleteRoute(routeId: Int, driverId: Int) {
         viewModelScope.launch {
             isLoading = true
             errorMessage = null
@@ -601,7 +593,7 @@ class DriverViewModel : ViewModel() {
                 isLoading = false
             }
         }
-    }
+    }*/
     fun pickupBooking(bookingId: Int, driverId: Int, checkpointId: Int, onComplete: () -> Unit = {}) {
         viewModelScope.launch {
             isLoading = true
@@ -750,7 +742,7 @@ class DriverViewModel : ViewModel() {
                     estimatedArrivalForDelay = response.body()
                 }
             } catch (e: Exception) {
-                // silently fail, UI shows fallback
+                e.message?.let { Log.e("FETCH ESTIMATED ARRIVAL", it) }
             }
         }
     }
@@ -977,7 +969,7 @@ class DriverViewModel : ViewModel() {
 
     // ── Local setters ─────────────────────────────────────────────────────────
 
-    fun setCapacity(current: Int, total: Int) {
+    /*fun setCapacity(current: Int, total: Int) {
         currentCapacity = current
         totalCapacity = total
     }
@@ -993,8 +985,7 @@ class DriverViewModel : ViewModel() {
     fun setDistances(values: List<Int>) {
         distances.clear()
         distances.addAll(values)
-    }
-
+    }*/
     fun clearError() {
         errorMessage = null
         successMessage = null

@@ -27,10 +27,10 @@ class CustomerViewModel : ViewModel() {
     var currentCustomerId by mutableStateOf<Int?>(null)
 
     // Dashboard State
-    var totalBookings by mutableStateOf(0)
-    var confirmedCount by mutableStateOf(0)
-    var inTransitCount by mutableStateOf(0)
-    var deliveredCount by mutableStateOf(0)
+    var totalBookings by mutableIntStateOf(0)
+    var confirmedCount by mutableIntStateOf(0)
+    var inTransitCount by mutableIntStateOf(0)
+    var deliveredCount by mutableIntStateOf(0)
 
     // Bookings State
     var customerBookings = mutableStateListOf<CustomerBookingDto>()
