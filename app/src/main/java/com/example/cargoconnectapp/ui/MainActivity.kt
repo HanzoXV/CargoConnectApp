@@ -64,7 +64,7 @@ fun AppNavigation(sessionViewModel: UserSessionViewModel,
 
     NavHost(navController = navController,
         startDestination = Splash,
-        enterTransition = {
+        /*enterTransition = {
             fadeIn(animationSpec = tween(200)) +
                     slideInHorizontally(
                         initialOffsetX = { it / 4 },
@@ -73,7 +73,7 @@ fun AppNavigation(sessionViewModel: UserSessionViewModel,
         },
         exitTransition = {
             fadeOut(animationSpec = tween(200))
-        })
+        }*/)
     {
         authGraph(navController, sessionViewModel, authViewModel, driverViewModel, customerViewModel)
         driverGraph(navController, sessionViewModel, authViewModel, driverViewModel, customerViewModel)

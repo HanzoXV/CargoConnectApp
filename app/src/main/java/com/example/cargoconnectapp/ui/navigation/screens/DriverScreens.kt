@@ -62,6 +62,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
+import kotlin.math.roundToInt
 
 // ─────────────────────────────────────────────
 // MODELS & DATA
@@ -500,14 +501,14 @@ fun DriverDashboardScreen(
                         GlassCard {
                             Text("Remaining Space Dimensions", fontWeight = FontWeight.Bold, color = textThemeColor)
                             Spacer(modifier = Modifier.height(8.dp))
-                            Text("Current available linear space in cargo hold", fontSize = 12.sp, color = textThemeColor.copy(alpha = 0.5f))
+                            Text("Current available space in cargo hold", fontSize = 12.sp, color = textThemeColor.copy(alpha = 0.5f))
 
                             Spacer(modifier = Modifier.height(16.dp))
 
                             val dim = truck?.dimensions?.remaining_dimensions
-                            DimensionDisplayItem("Length", "${dim?.l ?: 0} m")
-                            DimensionDisplayItem("Width", "${dim?.w ?: 0} m")
-                            DimensionDisplayItem("Height", "${dim?.h ?: 0} m")
+                            DimensionDisplayItem("Length", "${"%.2f".format(dim?.l ?: 0.0)} m")
+                            DimensionDisplayItem("Width", "${"%.2f".format(dim?.w ?: 0.0)} m")
+                            DimensionDisplayItem("Height", "${"%.2f".format(dim?.h ?: 0.0)} m")
                         }
                     }
                 }
@@ -659,7 +660,7 @@ fun DimensionItem(label: String, value: Int, onValueChange: (Int) -> Unit) {
         .padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, modifier = Modifier.weight(1f), fontSize = 13.sp, color = textThemeColor.copy(alpha = 0.6f))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("$value cm", fontWeight = FontWeight.SemiBold, color = textThemeColor)
+            Text("$value m", fontWeight = FontWeight.SemiBold, color = textThemeColor)
             Spacer(modifier = Modifier.width(16.dp))
             IconButton(onClick = { onValueChange(value - 5) }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.KeyboardArrowDown, null) }
             IconButton(onClick = { onValueChange(value + 5) }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.KeyboardArrowUp, null) }
@@ -915,7 +916,7 @@ fun ShipmentRequestDetailScreen(
                         }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("Dimensions: ${pkg.length} x ${pkg.width} x ${pkg.height} cm", fontSize = 12.sp, color = Color.Gray)
+                    Text("Dimensions: ${pkg.length} x ${pkg.width} x ${pkg.height} m", fontSize = 12.sp, color = Color.Gray)
                     Text("Tag: ${pkg.tagNo}", fontSize = 12.sp, color = Color.Gray)
                 }
             }
@@ -1261,7 +1262,7 @@ fun DriverBookingDetailScreen(
                         }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("Dimensions: ${pkg.length} x ${pkg.width} x ${pkg.height} cm", fontSize = 12.sp, color = Color.Gray)
+                    Text("Dimensions: ${pkg.length} x ${pkg.width} x ${pkg.height} m", fontSize = 12.sp, color = Color.Gray)
                     Text("Tag: ${pkg.tagNo}", fontSize = 12.sp, color = Color.Gray)
                 }
             }
@@ -1640,7 +1641,7 @@ fun ShipmentDetailedCard(
                                 color = Color.Gray
                             )
                             Text(
-                                "${pkg.length} x ${pkg.width} x ${pkg.height} cm",
+                                "${pkg.length} x ${pkg.width} x ${pkg.height} m",
                                 fontSize = 11.sp,
                                 color = Color.Gray
                             )

@@ -131,8 +131,8 @@ data class PackageWithAttributesRequest(
 
 object PackageAttributes {
     const val FRAGILE = 1
-    const val FLAMMABLE = 2
-    const val LIQUID = 3
+    const val FLAMMABLE = 3
+    const val LIQUID = 2
     const val KEEP_UPRIGHT = 4
 }
 

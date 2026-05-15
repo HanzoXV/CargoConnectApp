@@ -18,6 +18,7 @@ import com.example.cargoconnectapp.ui.models.viewmodels.AuthViewModel
 import com.example.cargoconnectapp.ui.models.viewmodels.CustomerViewModel
 import com.example.cargoconnectapp.ui.models.viewmodels.UserSessionViewModel
 import com.example.cargoconnectapp.ui.navigation.screens.*
+import kotlinx.coroutines.delay
 import org.osmdroid.util.GeoPoint
 
 @RequiresApi(Build.VERSION_CODES.O)
@@ -73,7 +74,7 @@ fun NavGraphBuilder.customerGraph(
                             } ?: "Route N/A",
                             amount = "Rs ${dto.amount}",
                             status = when(dto.status.lowercase()) {
-                                "intransit", "moving" -> BookingStatus.InTransit
+                                "in-transit", "moving" -> BookingStatus.InTransit
                                 "completed", "delivered", "closed" -> BookingStatus.Completed
                                 "canceled" -> BookingStatus.Canceled
                                 else -> BookingStatus.Assigned
@@ -112,7 +113,7 @@ fun NavGraphBuilder.customerGraph(
                     },
                     onTrackClick         = { booking -> 
                         customerViewModel.selectedBooking = customerViewModel.customerBookings.find { it.id == booking.id }
-                        navController.navigate(CustomerDashboard(CustomerDashboardPage.Tracking)) 
+                        navController.navigate(CustomerBookings(CustomerBookingPage.Tracking))
                     },
                     onCancelClick        = { booking -> 
                         customerViewModel.selectedBooking = customerViewModel.customerBookings.find { it.id == booking.id }
@@ -123,7 +124,13 @@ fun NavGraphBuilder.customerGraph(
             CustomerDashboardPage.Tracking -> {
                 FindingTruckScreen(
                     currentTab     = args.tab,
-                    onTimeout      = { navController.popBackStack() }, 
+                    onTimeout      = {
+                        navController.navigate(CustomerNewShipment(CustomerNewShipmentPage.AvailableTrucks)) {
+                        // Pop everything up to and including AddPackages (the flow entry point)
+                        popUpTo(CustomerNewShipment(CustomerNewShipmentPage.AddPackages)) {
+                            inclusive = true
+                        }
+                    } },
                     onHomeClick    = args.onHomeClick,
                     onOrdersClick  = args.onOrdersClick,
                     onHistoryClick = args.onHistoryClick,
@@ -180,6 +187,7 @@ fun NavGraphBuilder.customerGraph(
             }
             CustomerNewShipmentPage.ChooseLocation,
             CustomerNewShipmentPage.ChooseDates -> {
+
                 NewShipmentRouteScreen(
                     customerViewModel = customerViewModel,
                     currentTab = args.tab,
@@ -237,8 +245,6 @@ fun NavGraphBuilder.customerGraph(
                     onSendRequest    = { truck ->
                         customerViewModel.sendDeliveryRequest(truck)
                         customerViewModel.availableTrucks.remove(truck)
-                        if(customerViewModel.availableTrucks.isEmpty())
-                            navController.navigate(CustomerNewShipment(CustomerNewShipmentPage.AddPackages))
                                        },
                     onShowDetails    = { truck -> 
                         customerViewModel.selectedTruck = truck
@@ -409,6 +415,10 @@ fun NavGraphBuilder.customerGraph(
                 LaunchedEffect(Unit) {
                     customerViewModel.fetchTrackingPath()
                     customerViewModel.fetchDriverLocation()
+                    while (true) {
+                        delay(10_000)
+                        customerViewModel.fetchDriverLocation()
+                    }
                 }
                 TrackDriverScreen (
                     driverRoute = customerViewModel.routeTrackingPoints,

@@ -20,6 +20,8 @@ import java.time.format.DateTimeFormatter
 
 class CustomerViewModel : ViewModel() {
 
+    var customerBookingsSubTab by mutableStateOf("All")
+
     var routeTrackingPoints = mutableStateListOf<GeoPoint>()
     var assignedShipmentId by mutableStateOf<Int?>(null)
     var currentCustomerId by mutableStateOf<Int?>(null)
@@ -326,7 +328,7 @@ class CustomerViewModel : ViewModel() {
                     if (selectedShipmentId == shipmentId) {
                         selectedShipmentId = 0
 
-                        pendingShipments.removeIf { shipmentId == selectedShipmentId }
+                        pendingShipments.removeIf { it.shipmentId == shipmentId }
                     }
                     onComplete()
                 } else {
@@ -700,7 +702,7 @@ class CustomerViewModel : ViewModel() {
             try {
                 val response = RetrofitClient.instance.getOrCreateThread(
                     customerUserId = customerUserId,
-                    driverUserId = booking.shipment_id?: return@launch  // need this field
+                    driverUserId = booking.driver_user_id?: return@launch  // need this field
                 )
                 if (response.isSuccessful) {
                     val threadId = response.body()?.threadId ?: return@launch

@@ -175,33 +175,34 @@ fun OSMContainer(
     }
     customerViewModel
     if (trackDriver) {
-        // Watch for location changes [cite: 16-17]
+        // Auto-center map on first valid location
         LaunchedEffect(customerViewModel?.driverLocation) {
             val newLocation = customerViewModel?.driverLocation ?: return@LaunchedEffect
 
-            // Find existing driver marker [cite: 34-36]
-            val existingMarker = mapView.overlays.filterIsInstance<Marker>()
+            val existingMarker = mapView.overlays
+                .filterIsInstance<Marker>()
                 .find { it.id == "driver_red_dot" }
 
             if (existingMarker != null) {
-                // OPTIMIZATION: Instead of removing and adding, just update the position
                 existingMarker.position = newLocation
+                mapView.overlays.remove(existingMarker)
+                mapView.overlays.add(existingMarker)
             } else {
-                // First time creation
                 val driverMarker = Marker(mapView).apply {
                     id = "driver_red_dot"
                     position = newLocation
-                    icon = redDotIcon // Use cached icon
+                    icon = redDotIcon
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                 }
                 mapView.overlays.add(driverMarker)
             }
 
-            mapView.invalidate() // Refresh the view
+            mapView.controller.setZoom(16.0)
+            mapView.controller.animateTo(newLocation)
+            mapView.invalidate()
         }
     }
 
-    // ── Effect 1: Redraw route, checkpoint markers, optional circle ───────────
     LaunchedEffect(points.size, radiusInMeters, points.hashCode(), truckAtIndex) {
 
         if (points.isEmpty()) {
@@ -209,10 +210,12 @@ fun OSMContainer(
             mapView.invalidate()
             return@LaunchedEffect
         }
-        // Remove previous route / checkpoint markers / circles (keep truck marker)
         mapView.overlays.removeAll { overlay ->
             overlay is Polyline ||
-                    (overlay is Marker && overlay.id != "truck_marker" && overlay.id != "user_location_overlay") ||
+                    (overlay is Marker &&
+                            overlay.id != "truck_marker" &&
+                            overlay.id != "user_location_overlay" &&
+                            overlay.id != "driver_red_dot") ||
                     overlay is Polygon
         }
 

@@ -208,10 +208,9 @@ fun CustomerDashboardScreen(
             GlassCard {
                 Text("Shipment Overview", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = textThemeColor)
                 Spacer(modifier = Modifier.height(16.dp))
-                
-                BookingStatRowOverhauled("Assigned", customerViewModel.confirmedCount, total, statusBlueColor)
-                Spacer(modifier = Modifier.height(12.dp))
                 BookingStatRowOverhauled("In-Transit", customerViewModel.inTransitCount, total, statusOrangeColor)
+                Spacer(modifier = Modifier.height(12.dp))
+                BookingStatRowOverhauled("Assigned", customerViewModel.confirmedCount, total, statusBlueColor)
                 Spacer(modifier = Modifier.height(12.dp))
                 BookingStatRowOverhauled("Completed", customerViewModel.deliveredCount, total, Color(0xFF4CAF50))
             }
@@ -316,7 +315,7 @@ fun NewShipmentPackagesScreen(
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(recent.name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                                     Text(
-                                        "${recent.weight} KG • Quantity: ${recent.quantity} • ${recent.length}x${recent.width}x${recent.height} cm",
+                                        "${recent.weight} KG • Quantity: ${recent.quantity} • ${recent.length}x${recent.width}x${recent.height} m",
                                         fontSize = 11.sp,
                                         color = Color.Gray
                                     )
@@ -940,7 +939,7 @@ fun TruckSelectionCard(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Star, null, tint = Color(0xFFFFC107), modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(truck.rating.toString(), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(truck.rating.toString() + " " + "(${truck.totalReviews.toString()})", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
                         Spacer(modifier = Modifier.width(5.dp))
                     }
@@ -1140,17 +1139,13 @@ fun TrackDriverScreen(
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
 
             Box(modifier = Modifier.weight(0.5f).fillMaxWidth()) {
-                val routePoints = mutableListOf<GeoPoint>()
-                customerViewModel.pickupGeoPoint?.let { routePoints.add(it) }
-                customerViewModel.destinationGeoPoint?.let { routePoints.add(it) }
-
                 OSMContainer(
                     points = driverRoute,
                     radiusInMeters = 0.0,
                     onMapClick = { },
                     trackDriver = true,
+                    customerViewModel = customerViewModel
                 )
-                customerViewModel.fetchDriverLocation()
             }
         }
     }
@@ -1178,8 +1173,7 @@ fun YourBookingsScreen(
     onProfileClick: () -> Unit = {},
     currentTab: CustomerDestination = CustomerDashboard()
 ) {
-    var canReview by remember { mutableStateOf(true) }
-    var selectedTab by remember { mutableStateOf("Active") }
+    val canReviewMap = remember { mutableStateMapOf<Int, Boolean>() }
     var selectedShipmentForModal by remember { mutableStateOf<ShipmentDto?>(null) }
 
     Scaffold(bottomBar = { CustomerBottomBar(currentTab, onHomeClick, onOrdersClick, onHistoryClick, onChatClick, onProfileClick) }, containerColor = backgroundColor) { innerPadding ->
@@ -1187,11 +1181,48 @@ fun YourBookingsScreen(
             Spacer(modifier = Modifier.height(32.dp))
             Text("Your Shipments", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
             Spacer(modifier = Modifier.height(24.dp))
-            InteractiveTabRow(tabs = listOf("Active", "Assigned", "Pending", "Completed"), selectedTab = selectedTab, onTabSelected = { selectedTab = it })
+            InteractiveTabRow(
+                tabs = listOf("All", "Assigned", "In-Transit", "Completed", "Pending"),
+                selectedTab = customerViewModel.customerBookingsSubTab,
+                onTabSelected = { customerViewModel.customerBookingsSubTab = it }
+            )
             Spacer(modifier = Modifier.height(24.dp))
             LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(bottom = 32.dp)) {
-                when (selectedTab) {
-                    "Active" -> {
+                when (customerViewModel.customerBookingsSubTab) {
+                    "All" -> {
+                        items(assignedBookings) { booking ->
+                            CustomerBookingCardOverhauled(booking,
+                                onDetails = { onDetailsClick(booking) },
+                                onContact = { onContactDriverClick(booking) },
+                                onTrack = { onTrackClick(booking) },
+                                onCancel = { onCancelClick(booking) }
+                            )
+                        }
+                        items(activeBookings) { booking ->
+                            CustomerBookingCardOverhauled(booking,
+                                onDetails = { onDetailsClick(booking) },
+                                onContact = { onContactDriverClick(booking) },
+                                onTrack = { onTrackClick(booking) },
+                                onCancel = { onCancelClick(booking) }
+                            )
+                        }
+                        items(completedBookings) { booking ->
+                            LaunchedEffect(booking.id) {
+                                customerViewModel.checkCanReview(
+                                    reviewerUserId = userID,
+                                    bookingId = booking.id,
+                                    onCanReview = { canReviewMap[booking.id] = true },
+                                    onCannotReview = { canReviewMap[booking.id] = false }
+                                )
+                            }
+                            CompletedBookingCardOverhauled(booking,
+                                onDetails = { onDetailsClick(booking) },
+                                onReview = { onReviewClick(booking) },
+                                canReview = canReviewMap[booking.id] ?: true
+                            )
+                        }
+                    }
+                    "In-Transit" -> {
                         items(activeBookings) {
                             booking ->
                             CustomerBookingCardOverhauled(booking, onDetails = { onDetailsClick(booking) }, onContact = { onContactDriverClick(booking) }, onTrack = { onTrackClick(booking) }, onCancel = { onCancelClick(booking) })
@@ -1207,19 +1238,22 @@ fun YourBookingsScreen(
                             ) 
                         } 
                     }
-                    "Completed" -> { items(completedBookings) {
-                        booking ->
-                        customerViewModel.checkCanReview(
-                            reviewerUserId = userID,
-                            bookingId = booking.id,
-                            onCanReview = {
-                                canReview = true
-                            },
-                            onCannotReview = { msg ->
-                                canReview = false
-                            }
+                    "Completed" -> { items(completedBookings) { booking ->
+                        LaunchedEffect(booking.id) {
+                            customerViewModel.checkCanReview(
+                                reviewerUserId = userID,
+                                bookingId = booking.id,
+                                onCanReview = { canReviewMap[booking.id] = true },
+                                onCannotReview = { canReviewMap[booking.id] = false }
+                            )
+                        }
+                        CompletedBookingCardOverhauled(
+                            booking,
+                            onDetails = { onDetailsClick(booking) },
+                            onReview = { onReviewClick(booking) },
+                            canReview = canReviewMap[booking.id]
+                                ?: true
                         )
-                        CompletedBookingCardOverhauled(booking, onDetails = { onDetailsClick(booking) }, onReview = { onReviewClick(booking) }, canReview)
                     }
                     }
                     "Assigned" -> { items(assignedBookings) { booking -> CustomerBookingCardOverhauled(booking, onDetails = { onDetailsClick(booking) }, onContact = { onContactDriverClick(booking) }, onTrack = { onTrackClick(booking) }, onCancel = { onCancelClick(booking) }) } }
@@ -1914,7 +1948,7 @@ fun BookingShipmentsDetailScreen(
             packages.forEach { pkg ->
                 GlassCard(modifier = Modifier.padding(vertical = 4.dp)) {
                     Text(pkg.name, fontWeight = FontWeight.Bold)
-                    Text("Qty: ${pkg.quantity} • ${pkg.length}x${pkg.width}x${pkg.height} cm", fontSize = 12.sp, color = Color.Gray)
+                    Text("Qty: ${pkg.quantity} • ${pkg.length}x${pkg.width}x${pkg.height} m", fontSize = 12.sp, color = Color.Gray)
                     Text("Weight: ${pkg.weight} kg", fontSize = 12.sp, color = actionTealColor, fontWeight = FontWeight.Bold)
                 }
             }
@@ -1953,6 +1987,8 @@ fun CustomerBookingCardOverhauled(
     onTrack: () -> Unit,
     onCancel: () -> Unit
 ) {
+
+
     GlassCard(modifier = Modifier.clickable { onDetails() }) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1962,7 +1998,7 @@ fun CustomerBookingCardOverhauled(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(booking.title, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Text(booking.amount, fontSize = 13.sp, color = actionTealColor, fontWeight = FontWeight.Bold)
+                    Text(text = booking.amount, fontSize = 13.sp, color = actionTealColor, fontWeight = FontWeight.Bold)
                 }
             }
             BookingStatusBadgeOverhauled(status = booking.status)
@@ -2041,8 +2077,18 @@ fun CompletedBookingCardOverhauled(booking: CustomerBooking, onDetails: () -> Un
         }
         Spacer(modifier = Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onDetails, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text("Details") }
-            Button(onClick = onReview,  enabled = canReview, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp),
+            OutlinedButton(
+                onClick = onDetails,
+                modifier = Modifier.weight(0.8f).heightIn(min = 40.dp),
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+            ) { Text("Details", fontSize = 12.sp) }
+            Button(
+                onClick = onReview,
+                enabled = canReview,
+                modifier = Modifier.weight(1f).heightIn(min = 40.dp),
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color.White,
                     contentColor = Color.Black,
@@ -2051,7 +2097,14 @@ fun CompletedBookingCardOverhauled(booking: CustomerBooking, onDetails: () -> Un
                     // Set the text/icon color when the button is disabled
                     disabledContentColor = Color.Gray
                 ))
-            { Text(if(canReview) "Review" else "Already Reviewed") }
+            {
+                Text(
+                    if (canReview) "Review" else "Already Reviewed",
+                    fontSize = 11.sp,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2
+                )
+            }
         }
     }
 }

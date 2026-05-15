@@ -711,6 +711,7 @@ class DriverViewModel : ViewModel() {
     }
 
     fun fetchAllBookings(driverId: Int) {
+        if (isLoading) return
         viewModelScope.launch {
             isLoading = true
             errorMessage = null
